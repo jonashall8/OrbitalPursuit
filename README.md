@@ -111,11 +111,6 @@ OrbitalPursuit/
 - **Priority-based Triage** — Multi-factor urgency scoring for service scheduling
 - **Tsiolkovsky Rocket Equation** — Fuel consumption modeling
 
-## Authors
-
-- [Your Name] — C++ Engine
-- [Partner Name] — Frontend & Integration
-
 ## License
 
 MIT
