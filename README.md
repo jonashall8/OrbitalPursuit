@@ -14,20 +14,6 @@ As space-based AI data centers become reality, maintaining constellations of com
 - **Fuel depletion** — Station-keeping propellant runs low, satellites drift out of formation
 - **Autonomous servicing** — A servicer spacecraft must triage, navigate to, and repair satellites with minimal ground intervention
 
-## Architecture
-
-```
-┌──────────────────────────┐      JSON / WebSocket     ┌─────────────────────────┐
-│   Raspberry Pi Zero 2 W  │ ◄───────────────────────► │   Browser (Three.js)    │
-│                          │                           │                         │
-│  C++ Engine:             │   Telemetry stream ───►   │  3D visualization:      │
-│  - Orbital mechanics     │                           │  - Earth + constellation │
-│  - Thermal simulation    │   Waypoint commands ◄──   │  - Health indicators    │
-│  - Trajectory planning   │                           │  - Servicer animation   │
-│  - Mission state machine │                           │  - Interactive controls │
-│  - Constellation triage  │                           │  - Mission HUD          │
-└──────────────────────────┘                           └─────────────────────────┘
-```
 
 ## Building
 
