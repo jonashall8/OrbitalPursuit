@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OrbitalPursuit — Autonomous Satellite Servicing Simulator</title>
+    <style>
+        /* ── Reset & Base ─────────────────────────────────── */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            color: #e0e0e0;
+            font-family: 'Courier New', 'Consolas', monospace;
+            overflow: hidden;
+            cursor: default;
+        }
+        #canvas-container {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+        }
+
+        /* ── HUD Panels ──────────────────────────────────── */
+        .hud {
+            position: fixed;
+            background: rgba(0, 8, 20, 0.88);
+            border: 1px solid rgba(0, 140, 255, 0.25);
+            border-radius: 6px;
+            padding: 14px 18px;
+            font-size: 12px;
+            line-height: 1.6;
+            backdrop-filter: blur(8px);
+            pointer-events: auto;
+        }
+        .hud h2 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #0af;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(0, 140, 255, 0.2);
+            padding-bottom: 4px;
+        }
+
+        /* Mission panel (top-left) */
+        #hud-mission {
+            top: 16px; left: 16px;
+            min-width: 320px;
+        }
+        #hud-mission .phase {
+            font-size: 18px;
+            font-weight: bold;
+            color: #0f0;
+        }
+        #hud-mission .status-msg {
+            color: #aaa;
+            margin-top: 4px;
+        }
+
+        /* Satellite list (left side) */
+        #hud-satellites {
+            top: 160px; left: 16px;
+            min-width: 360px;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+        .sat-row {
+            display: flex;
+            align-items: center;
+            padding: 4px 0;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: background 0.15s;
+        }
+        .sat-row:hover { background: rgba(0, 140, 255, 0.1); }
+        .sat-row.selected { background: rgba(0, 200, 255, 0.15); border-left: 2px solid #0af; padding-left: 6px; }
+        .sat-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        .sat-name { width: 90px; color: #ccc; }
+        .sat-stat { width: 70px; font-size: 11px; }
+
+        /* Detail panel (right side) */
+        #hud-detail {
+            top: 16px; right: 16px;
+            min-width: 280px;
+            display: none;
+        }
+        #hud-detail .label { color: #888; font-size: 10px; text-transform: uppercase; }
+        #hud-detail .value { color: #fff; font-size: 14px; margin-bottom: 6px; }
+        .bar-outer {
+            width: 100%; height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            margin: 2px 0 8px;
+        }
+        .bar-inner {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+
+        /* Controls (bottom-center) */
+        #hud-controls {
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .ctrl-btn {
+            background: rgba(0, 140, 255, 0.15);
+            border: 1px solid rgba(0, 140, 255, 0.4);
+            color: #0af;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .ctrl-btn:hover {
+            background: rgba(0, 140, 255, 0.3);
+            border-color: #0af;
+        }
+        .ctrl-btn.active {
+            background: rgba(0, 200, 100, 0.2);
+            border-color: #0c6;
+            color: #0c6;
+        }
+
+        /* Connection status */
+        #conn-status {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            padding: 4px 12px;
+            border-radius: 10px;
+            background: rgba(255, 160, 0, 0.2);
+            color: #fa0;
+            border: 1px solid rgba(255, 160, 0, 0.3);
+        }
+        #conn-status.live {
+            background: rgba(0, 200, 100, 0.2);
+            color: #0c6;
+            border-color: rgba(0, 200, 100, 0.3);
+        }
+
+        /* Tooltip */
+        #tooltip {
+            position: fixed;
+            background: rgba(0, 8, 20, 0.95);
+            border: 1px solid #0af;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<!-- HUD: Mission Status -->
+<div class="hud" id="hud-mission">
+    <h2>Mission Control</h2>
+    <div class="phase" id="phase-display">MONITORING</div>
+    <div class="status-msg" id="status-msg">Initializing simulation...</div>
+    <div style="margin-top:8px; font-size:11px; color:#666;">
+        <span>Sim Time: <span id="sim-time" style="color:#aaa">0s</span></span>
+        &nbsp;|&nbsp;
+        <span>Pi CPU: <span id="pi-temp" style="color:#aaa">N/A</span></span>
+    </div>
+    <div style="margin-top:4px; font-size:11px; color:#666;">
+        Servicer Fuel: <span id="svc-fuel" style="color:#aaa">50 kg</span>
+    </div>
+</div>
+
+<!-- HUD: Satellite List -->
+<div class="hud" id="hud-satellites">
+    <h2>Constellation Health</h2>
+    <div id="sat-list"></div>
+</div>
+
+<!-- HUD: Selected Satellite Detail -->
+<div class="hud" id="hud-detail">
+    <h2>Satellite Detail</h2>
+    <div id="detail-content"></div>
+    <button class="ctrl-btn" id="btn-service" style="margin-top:10px; width:100%;">
+        DISPATCH SERVICER
+    </button>
+</div>
+
+<!-- Controls -->
+<div class="hud" id="hud-controls">
+    <button class="ctrl-btn" id="btn-pause">PAUSE</button>
+    <button class="ctrl-btn" id="btn-speed-1x">1x</button>
+    <button class="ctrl-btn active" id="btn-speed-10x">10x</button>
+    <button class="ctrl-btn" id="btn-speed-50x">50x</button>
+    <span style="color:#555; font-size:10px; margin-left:8px;">
+        Click satellite to inspect | Scroll to zoom
+    </span>
+</div>
+
+<!-- Connection Status -->
+<div id="conn-status">DEMO MODE</div>
+
+<!-- Tooltip -->
+<div id="tooltip"></div>
+
+<!-- ── Three.js ─────────────────────────────────────────── -->
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ════════════════════════════════════════════════════════════════════
+//  CONFIGURATION
+// ════════════════════════════════════════════════════════════════════
+
+const SCALE         = 1 / 1000;   // 1 Three.js unit = 1 km
+const NUM_SATS      = 8;
+const POLL_INTERVAL = 200;        // ms between telemetry fetches
+const TELEMETRY_URL = 'telemetry.json';
+
+// ════════════════════════════════════════════════════════════════════
+//  SCENE SETUP
+// ════════════════════════════════════════════════════════════════════
+
+const scene    = new THREE.Scene();
+const camera   = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.01, 5000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+camera.position.set(8, 6, 12);
+camera.lookAt(0, 0, 0);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance   = 1;
+controls.maxDistance   = 100;
+
+// ── Lighting ──
+scene.add(new THREE.AmbientLight(0x334466, 0.6));
+const sunLight = new THREE.DirectionalLight(0xffeedd, 1.8);
+sunLight.position.set(50, 30, 40);
+scene.add(sunLight);
+
+// ── Starfield ──
+const starGeo = new THREE.BufferGeometry();
+const starVerts = [];
+for (let i = 0; i < 4000; i++) {
+    starVerts.push(
+        (Math.random() - 0.5) * 2000,
+        (Math.random() - 0.5) * 2000,
+        (Math.random() - 0.5) * 2000
+    );
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })));
+
+// ── Earth (decorative, below the formation) ──
+const earthGeo  = new THREE.SphereGeometry(3, 48, 48);
+const earthMat  = new THREE.MeshPhongMaterial({
+    color: 0x2244aa,
+    emissive: 0x112244,
+    specular: 0x444466,
+    shininess: 15,
+    transparent: true,
+    opacity: 0.4
+});
+const earth = new THREE.Mesh(earthGeo, earthMat);
+earth.position.set(0, -18, 0);
+scene.add(earth);
+
+// Atmosphere glow
+const glowGeo = new THREE.SphereGeometry(3.15, 48, 48);
+const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x4488ff,
+    transparent: true,
+    opacity: 0.08,
+    side: THREE.BackSide
+});
+scene.add(new THREE.Mesh(glowGeo, glowMat)).position.copy(earth.position);
+
+// ── Grid reference (orbital plane) ──
+const gridHelper = new THREE.GridHelper(20, 20, 0x0a2a4a, 0x051525);
+gridHelper.position.y = -0.5;
+scene.add(gridHelper);
+
+// ════════════════════════════════════════════════════════════════════
+//  SATELLITE & SERVICER 3D OBJECTS
+// ════════════════════════════════════════════════════════════════════
+
+const STATUS_COLORS = {
+    NOMINAL:  0x00ff88,
+    WARNING:  0xffaa00,
+    CRITICAL: 0xff2200,
+    OFFLINE:  0x555555
+};
+
+// Satellite meshes
+const satMeshes = [];
+const satGlows  = [];
+const satGroup  = new THREE.Group();
+scene.add(satGroup);
+
+for (let i = 0; i < NUM_SATS; i++) {
+    // Body
+    const geo  = new THREE.OctahedronGeometry(0.15, 0);
+    const mat  = new THREE.MeshPhongMaterial({ color: 0x00ff88, emissive: 0x004422 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.satId = i;
+    satGroup.add(mesh);
+    satMeshes.push(mesh);
+
+    // Solar panels (flat boxes on each side)
+    const panelGeo = new THREE.BoxGeometry(0.5, 0.02, 0.12);
+    const panelMat = new THREE.MeshPhongMaterial({ color: 0x1a1a5a, emissive: 0x0a0a3a });
+    const panelL   = new THREE.Mesh(panelGeo, panelMat);
+    const panelR   = new THREE.Mesh(panelGeo, panelMat);
+    panelL.position.x = -0.3;
+    panelR.position.x =  0.3;
+    mesh.add(panelL);
+    mesh.add(panelR);
+
+    // Health aura (point light)
+    const glow = new THREE.PointLight(0x00ff88, 0.3, 2);
+    mesh.add(glow);
+    satGlows.push(glow);
+}
+
+// Servicer mesh (distinct shape — yellow)
+const svcGeo  = new THREE.ConeGeometry(0.12, 0.35, 6);
+const svcMat  = new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x554400 });
+const svcMesh = new THREE.Mesh(svcGeo, svcMat);
+svcMesh.rotation.x = Math.PI;  // nose forward
+scene.add(svcMesh);
+
+// Servicer engine glow
+const svcGlow = new THREE.PointLight(0xff6600, 0, 1.5);
+svcMesh.add(svcGlow);
+
+// Servicer trail
+const TRAIL_LEN = 120;
+const trailPositions = new Float32Array(TRAIL_LEN * 3);
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+const trailMat = new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.4 });
+const trailLine = new THREE.Line(trailGeo, trailMat);
+scene.add(trailLine);
+let trailIdx = 0;
+
+// ════════════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════════════
+
+let telemetryData  = null;
+let selectedSatId  = -1;
+let useLiveData    = false;
+let simPaused      = false;
+let simSpeed       = 10;
+let demoTime       = 0;
+
+// ════════════════════════════════════════════════════════════════════
+//  DEMO SIMULATION (runs when C++ engine is not connected)
+// ════════════════════════════════════════════════════════════════════
+
+function generateDemoData(t) {
+    const sats = [];
+    for (let i = 0; i < NUM_SATS; i++) {
+        const angle  = (2 * Math.PI * i) / NUM_SATS;
+        const radius = 5000;  // meters
+        const px     = radius * Math.cos(angle) * 0.3;
+        const py     = radius * Math.sin(angle);
+        const pz     = radius * Math.cos(angle + Math.PI / 4) * 0.2;
+
+        // Simulate degradation
+        const baseTemp   = 50 + i * 4 + Math.sin(t * 0.02 + i) * 8;
+        const tempSpike  = (i === 5 && t > 30) ? Math.min((t - 30) * 0.5, 35) : 0;
+        const gpuTemp    = baseTemp + tempSpike;
+        const radEff     = Math.max(0.3, 1.0 - i * 0.06 - t * 0.0002);
+        const fuel       = Math.max(0, 10 - i * 0.5 - t * 0.002);
+        const load       = Math.min(1.0, 0.6 + i * 0.04 + t * 0.001);
+
+        let status = 'NOMINAL';
+        if (gpuTemp >= 90 || fuel < 1) status = 'CRITICAL';
+        else if (gpuTemp >= 75 || fuel < 3 || radEff < 0.5) status = 'WARNING';
+
+        let urgency = 0;
+        if (gpuTemp > 75) urgency += 100 * Math.pow((gpuTemp - 75) / 25, 2);
+        if (fuel < 3) urgency += 50 * (1 - fuel / 3);
+
+        sats.push({
+            id: i,
+            name: 'COMPUTE-' + i,
+            pos: [px, py, pz],
+            vel: [0, 0, 0],
+            att: [1, 0, 0, 0],
+            gpu_temp: gpuTemp,
+            radiator_eff: radEff,
+            fuel: fuel,
+            compute_load: load,
+            solar_power: 4083,
+            power_draw: 200 + load * 2400,
+            in_eclipse: Math.sin(t * 0.05 + i * 0.8) > 0.7,
+            status: status,
+            urgency: urgency
+        });
+    }
+
+    // Servicer - find most urgent and approach it
+    let targetId = -1;
+    let maxUrg   = 5;
+    sats.forEach(s => { if (s.urgency > maxUrg) { maxUrg = s.urgency; targetId = s.id; } });
+
+    const svcPark = [0, -10000, 0];
+    let svcPos    = svcPark;
+    let phase     = 'MONITORING';
+    let statusMsg = 'Monitoring constellation health...';
+    let progress  = 0;
+
+    if (targetId >= 0) {
+        const target   = sats[targetId];
+        const approach = Math.min(1, Math.max(0, (t - 20) / 40));
+        svcPos = [
+            svcPark[0] + (target.pos[0] - svcPark[0]) * approach,
+            svcPark[1] + (target.pos[1] - svcPark[1]) * approach,
+            svcPark[2] + (target.pos[2] - svcPark[2]) * approach
+        ];
+        if (approach < 0.3)      { phase = 'TRANSIT';     statusMsg = `Transit to ${target.name}`; progress = approach / 0.3; }
+        else if (approach < 0.8) { phase = 'RENDEZVOUS';  statusMsg = 'Proximity operations...'; progress = (approach - 0.3) / 0.5; }
+        else if (approach < 0.95){ phase = 'DOCKING';     statusMsg = 'Final approach...'; progress = (approach - 0.8) / 0.15; }
+        else                     { phase = 'SERVICING';   statusMsg = 'Servicing in progress...'; progress = Math.min(1, (t - 58) / 20); }
+    }
+
+    return {
+        sim_time: t,
+        pi_cpu_temp: -1,
+        mission: { phase, target_id: targetId, mission_time: t, phase_progress: progress, status: statusMsg },
+        servicer: { pos: svcPos, vel: [0, 0, 0], att: [1, 0, 0, 0], fuel: 50 - t * 0.05, target_id: targetId },
+        satellites: sats
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  TELEMETRY POLLING
+// ════════════════════════════════════════════════════════════════════
+
+async function fetchTelemetry() {
+    try {
+        const resp = await fetch(TELEMETRY_URL + '?t=' + Date.now());
+        if (resp.ok) {
+            telemetryData = await resp.json();
+            if (!useLiveData) {
+                useLiveData = true;
+                document.getElementById('conn-status').textContent = 'LIVE — C++ ENGINE';
+                document.getElementById('conn-status').className = 'live';
+            }
+        }
+    } catch {
+        // Not connected — fall back to demo mode
+        useLiveData = false;
+        document.getElementById('conn-status').textContent = 'DEMO MODE';
+        document.getElementById('conn-status').className = '';
+    }
+}
+
+setInterval(fetchTelemetry, POLL_INTERVAL);
+fetchTelemetry();
+
+// ════════════════════════════════════════════════════════════════════
+//  HUD UPDATES
+// ════════════════════════════════════════════════════════════════════
+
+function updateHUD(data) {
+    if (!data) return;
+
+    // Mission panel
+    const phaseEl = document.getElementById('phase-display');
+    phaseEl.textContent = data.mission.phase;
+    phaseEl.style.color =
+        data.mission.phase === 'SERVICING' ? '#ff0' :
+        data.mission.phase === 'MONITORING' ? '#0f0' :
+        data.mission.phase === 'CRITICAL' ? '#f00' : '#0af';
+
+    document.getElementById('status-msg').textContent = data.mission.status;
+    document.getElementById('sim-time').textContent = Math.floor(data.sim_time) + 's';
+    document.getElementById('pi-temp').textContent =
+        data.pi_cpu_temp >= 0 ? Math.floor(data.pi_cpu_temp) + ' C' : 'N/A';
+    document.getElementById('svc-fuel').textContent = Math.floor(data.servicer.fuel) + ' kg';
+
+    // Satellite list
+    let listHtml = '';
+    data.satellites.forEach(sat => {
+        const col = STATUS_COLORS[sat.status] || 0x555555;
+        const hex = '#' + col.toString(16).padStart(6, '0');
+        const sel = sat.id === selectedSatId ? ' selected' : '';
+        listHtml += `
+            <div class="sat-row${sel}" data-id="${sat.id}">
+                <div class="sat-dot" style="background:${hex}"></div>
+                <span class="sat-name">${sat.name}</span>
+                <span class="sat-stat" style="color:${hex}">${sat.status}</span>
+                <span class="sat-stat">${Math.floor(sat.gpu_temp)}C</span>
+                <span class="sat-stat">${sat.fuel.toFixed(1)}kg</span>
+            </div>`;
+    });
+    document.getElementById('sat-list').innerHTML = listHtml;
+
+    // Attach click handlers
+    document.querySelectorAll('.sat-row').forEach(row => {
+        row.addEventListener('click', () => {
+            selectedSatId = parseInt(row.dataset.id);
+        });
+    });
+
+    // Detail panel
+    if (selectedSatId >= 0) {
+        const sat = data.satellites.find(s => s.id === selectedSatId);
+        if (sat) {
+            const dp = document.getElementById('hud-detail');
+            dp.style.display = 'block';
+
+            const tempPct = Math.min(100, (sat.gpu_temp / 100) * 100);
+            const tempCol = sat.gpu_temp > 90 ? '#f22' : sat.gpu_temp > 75 ? '#fa0' : '#0f8';
+            const fuelPct = (sat.fuel / 10) * 100;
+            const radPct  = sat.radiator_eff * 100;
+            const loadPct = sat.compute_load * 100;
+
+            document.getElementById('detail-content').innerHTML = `
+                <div style="font-size:16px; color:#fff; margin-bottom:8px;">${sat.name}</div>
+                <div class="label">GPU Temperature</div>
+                <div class="value" style="color:${tempCol}">${sat.gpu_temp.toFixed(1)} C</div>
+                <div class="bar-outer"><div class="bar-inner" style="width:${tempPct}%; background:${tempCol}"></div></div>
+
+                <div class="label">Fuel Remaining</div>
+                <div class="value">${sat.fuel.toFixed(1)} kg</div>
+                <div class="bar-outer"><div class="bar-inner" style="width:${fuelPct}%; background:#0af"></div></div>
+
+                <div class="label">Radiator Efficiency</div>
+                <div class="value">${(sat.radiator_eff * 100).toFixed(0)}%</div>
+                <div class="bar-outer"><div class="bar-inner" style="width:${radPct}%; background:#a0f"></div></div>
+
+                <div class="label">Compute Load</div>
+                <div class="value">${(sat.compute_load * 100).toFixed(0)}%</div>
+                <div class="bar-outer"><div class="bar-inner" style="width:${loadPct}%; background:#ff0"></div></div>
+
+                <div class="label">Power</div>
+                <div class="value">${Math.floor(sat.power_draw)}W / ${Math.floor(sat.solar_power)}W ${sat.in_eclipse ? '(ECLIPSE)' : ''}</div>
+
+                <div class="label">Status</div>
+                <div class="value" style="color:#${(STATUS_COLORS[sat.status] || 0x555555).toString(16).padStart(6,'0')}">${sat.status}</div>
+
+                <div class="label">Urgency Score</div>
+                <div class="value">${sat.urgency.toFixed(1)}</div>
+            `;
+        }
+    } else {
+        document.getElementById('hud-detail').style.display = 'none';
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  3D SCENE UPDATE
+// ════════════════════════════════════════════════════════════════════
+
+function updateScene(data) {
+    if (!data) return;
+
+    // Update satellite positions and colors
+    data.satellites.forEach((sat, i) => {
+        if (i >= satMeshes.length) return;
+        const mesh = satMeshes[i];
+        const glow = satGlows[i];
+
+        mesh.position.set(
+            sat.pos[0] * SCALE,
+            sat.pos[2] * SCALE,   // swap y/z for Three.js coordinate system
+            sat.pos[1] * SCALE
+        );
+
+        // Slow spin
+        mesh.rotation.y += 0.005;
+        mesh.rotation.x += 0.002;
+
+        // Color by status
+        const col = STATUS_COLORS[sat.status] || 0x555555;
+        mesh.material.color.setHex(col);
+        mesh.material.emissive.setHex(col).multiplyScalar(0.3);
+        glow.color.setHex(col);
+        glow.intensity = sat.status === 'CRITICAL' ? 0.8 : 0.3;
+
+        // Pulse critical satellites
+        if (sat.status === 'CRITICAL') {
+            const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.008);
+            mesh.scale.setScalar(1.0 + pulse * 0.2);
+        } else {
+            mesh.scale.setScalar(1.0);
+        }
+
+        // Highlight selected
+        if (sat.id === selectedSatId) {
+            mesh.scale.multiplyScalar(1.25);
+        }
+
+        // Eclipse dimming (darken solar panels)
+        mesh.children.forEach(child => {
+            if (child.isMesh) {
+                child.material.emissive.setHex(sat.in_eclipse ? 0x000000 : 0x0a0a3a);
+            }
+        });
+    });
+
+    // Update servicer
+    const svc = data.servicer;
+    svcMesh.position.set(
+        svc.pos[0] * SCALE,
+        svc.pos[2] * SCALE,
+        svc.pos[1] * SCALE
+    );
+
+    // Engine glow when moving
+    const svcSpeed = Math.sqrt(svc.vel[0]**2 + svc.vel[1]**2 + svc.vel[2]**2);
+    svcGlow.intensity = Math.min(2, svcSpeed * 0.1);
+
+    // Point servicer toward its target
+    if (svc.target_id >= 0 && svc.target_id < satMeshes.length) {
+        const targetPos = satMeshes[svc.target_id].position;
+        svcMesh.lookAt(targetPos);
+    }
+
+    // Update trail
+    const ti = trailIdx % TRAIL_LEN;
+    trailPositions[ti * 3]     = svcMesh.position.x;
+    trailPositions[ti * 3 + 1] = svcMesh.position.y;
+    trailPositions[ti * 3 + 2] = svcMesh.position.z;
+    trailIdx++;
+    trailGeo.attributes.position.needsUpdate = true;
+
+    // Rotate Earth slowly
+    earth.rotation.y += 0.001;
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  RAYCASTING (Click-to-select satellites)
+// ════════════════════════════════════════════════════════════════════
+
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
+
+renderer.domElement.addEventListener('click', (event) => {
+    mouse.x =  (event.clientX / window.innerWidth)  * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(satMeshes, true);
+
+    if (hits.length > 0) {
+        // Walk up to find the satellite mesh
+        let obj = hits[0].object;
+        while (obj && obj.userData.satId === undefined) obj = obj.parent;
+        if (obj && obj.userData.satId !== undefined) {
+            selectedSatId = obj.userData.satId;
+        }
+    } else {
+        selectedSatId = -1;
+    }
+});
+
+// ── Tooltip on hover ──
+renderer.domElement.addEventListener('mousemove', (event) => {
+    mouse.x =  (event.clientX / window.innerWidth)  * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(satMeshes, true);
+
+    const tip = document.getElementById('tooltip');
+    if (hits.length > 0 && telemetryData) {
+        let obj = hits[0].object;
+        while (obj && obj.userData.satId === undefined) obj = obj.parent;
+        if (obj && obj.userData.satId !== undefined) {
+            const sat = telemetryData.satellites[obj.userData.satId];
+            if (sat) {
+                tip.style.display = 'block';
+                tip.style.left = (event.clientX + 14) + 'px';
+                tip.style.top  = (event.clientY + 14) + 'px';
+                tip.innerHTML  = `<b>${sat.name}</b> [${sat.status}]<br>` +
+                    `Temp: ${sat.gpu_temp.toFixed(0)}C | Fuel: ${sat.fuel.toFixed(1)}kg`;
+            }
+        }
+    } else {
+        tip.style.display = 'none';
+    }
+});
+
+// ════════════════════════════════════════════════════════════════════
+//  CONTROLS
+// ════════════════════════════════════════════════════════════════════
+
+document.getElementById('btn-pause').addEventListener('click', () => {
+    simPaused = !simPaused;
+    document.getElementById('btn-pause').textContent = simPaused ? 'PLAY' : 'PAUSE';
+});
+
+[1, 10, 50].forEach(speed => {
+    document.getElementById(`btn-speed-${speed}x`).addEventListener('click', () => {
+        simSpeed = speed;
+        document.querySelectorAll('#hud-controls .ctrl-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(`btn-speed-${speed}x`).classList.add('active');
+    });
+});
+
+document.getElementById('btn-service').addEventListener('click', () => {
+    if (selectedSatId >= 0) {
+        // In demo mode this is visual only; with live engine it would send a command
+        console.log('Dispatch servicer to satellite', selectedSatId);
+    }
+});
+
+// ════════════════════════════════════════════════════════════════════
+//  RESIZE
+// ════════════════════════════════════════════════════════════════════
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ════════════════════════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ════════════════════════════════════════════════════════════════════
+
+const clock = new THREE.Clock();
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const dt = clock.getDelta();
+    controls.update();
+
+    // Use live or demo data
+    if (!useLiveData) {
+        if (!simPaused) {
+            demoTime += dt * simSpeed;
+        }
+        telemetryData = generateDemoData(demoTime);
+    }
+
+    if (telemetryData) {
+        updateScene(telemetryData);
+        updateHUD(telemetryData);
+    }
+
+    renderer.render(scene, camera);
+}
+
+animate();
+
+</script>
+</body>
+</html>
