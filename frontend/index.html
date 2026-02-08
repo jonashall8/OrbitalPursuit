@@ -1,1017 +1,559 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OrbitalPursuit — Autonomous Satellite Servicing Simulator</title>
-    <style>
-        /* ── Reset & Base ─────────────────────────────────── */
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #000;
-            color: #e0e0e0;
-            font-family: 'Courier New', 'Consolas', monospace;
-            overflow: hidden;
-            cursor: default;
-        }
-        #canvas-container {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrbitalPursuit — Autonomous Satellite Servicing Simulator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;color:#e0e0e0;font-family:'Courier New','Consolas',monospace;overflow:hidden}
+#canvas-container{position:fixed;top:0;left:0;width:100%;height:100%}
 
-        /* ── HUD Panels ──────────────────────────────────── */
-        .hud {
-            position: fixed;
-            background: rgba(0, 8, 20, 0.88);
-            border: 1px solid rgba(0, 140, 255, 0.25);
-            border-radius: 6px;
-            padding: 14px 18px;
-            font-size: 12px;
-            line-height: 1.6;
-            backdrop-filter: blur(8px);
-            pointer-events: auto;
-        }
-        .hud h2 {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: #0af;
-            margin-bottom: 8px;
-            border-bottom: 1px solid rgba(0, 140, 255, 0.2);
-            padding-bottom: 4px;
-        }
+/* HUD base */
+.hud{position:fixed;background:rgba(0,8,20,0.88);border:1px solid rgba(0,140,255,0.25);border-radius:6px;padding:12px 16px;font-size:12px;line-height:1.6;backdrop-filter:blur(8px);pointer-events:auto;z-index:10}
+.hud h2{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#0af;margin-bottom:6px;border-bottom:1px solid rgba(0,140,255,0.15);padding-bottom:4px}
+.label{color:#888;font-size:10px;text-transform:uppercase}
+.value{color:#fff;font-size:13px;margin-bottom:4px}
 
-        /* Mission panel (top-left) */
-        #hud-mission {
-            top: 16px; left: 16px;
-            min-width: 320px;
-        }
-        #hud-mission .phase {
-            font-size: 18px;
-            font-weight: bold;
-            color: #0f0;
-        }
-        #hud-mission .status-msg {
-            color: #aaa;
-            margin-top: 4px;
-        }
+/* Mission panel */
+#hud-mission{top:14px;left:14px;width:340px}
+.phase{font-size:18px;font-weight:bold;color:#0f0}
+.status-msg{color:#aaa;margin-top:2px;font-size:11px}
 
-        /* Satellite list (left side) */
-        #hud-satellites {
-            top: 200px; left: 16px;
-            min-width: 360px;
-            max-height: calc(100vh - 240px);
-            overflow-y: auto;
-        }
-        .sat-row {
-            display: flex;
-            align-items: center;
-            padding: 4px 0;
-            cursor: pointer;
-            border-radius: 3px;
-            transition: background 0.15s;
-        }
-        .sat-row:hover { background: rgba(0, 140, 255, 0.1); }
-        .sat-row.selected { background: rgba(0, 200, 255, 0.15); border-left: 2px solid #0af; padding-left: 6px; }
-        .sat-dot {
-            width: 10px; height: 10px;
-            border-radius: 50%;
-            margin-right: 8px;
-            flex-shrink: 0;
-        }
-        .sat-name { width: 90px; color: #ccc; }
-        .sat-stat { width: 70px; font-size: 11px; }
+/* Satellite list */
+#hud-satellites{top:140px;left:14px;width:340px;max-height:calc(100vh - 430px);overflow-y:auto}
+.sat-row{display:flex;align-items:center;padding:3px 2px;cursor:pointer;border-radius:3px;transition:background .15s}
+.sat-row:hover{background:rgba(0,140,255,0.1)}
+.sat-row.sel{background:rgba(0,200,255,0.15);border-left:2px solid #0af;padding-left:6px}
+.sat-dot{width:8px;height:8px;border-radius:50%;margin-right:6px;flex-shrink:0}
+.sat-name{width:80px;color:#ccc;font-size:11px}
+.sat-stat{width:60px;font-size:10px}
 
-        /* Detail panel (right side) */
-        #hud-detail {
-            top: 16px; right: 16px;
-            min-width: 280px;
-            display: none;
-        }
-        #hud-detail .label { color: #888; font-size: 10px; text-transform: uppercase; }
-        #hud-detail .value { color: #fff; font-size: 14px; margin-bottom: 6px; }
-        .bar-outer {
-            width: 100%; height: 6px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 3px;
-            margin: 2px 0 8px;
-        }
-        .bar-inner {
-            height: 100%;
-            border-radius: 3px;
-            transition: width 0.3s;
-        }
+/* Detail panel */
+#hud-detail{top:14px;right:14px;width:260px;display:none}
+.bar-outer{width:100%;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;margin:2px 0 6px}
+.bar-inner{height:100%;border-radius:3px;transition:width .3s}
 
-        /* Servicer panel (bottom-right) */
-        #hud-servicer {
-            bottom: 70px; right: 16px;
-            min-width: 250px;
-        }
-        .svc-temp-bar {
-            width: 100%; height: 10px;
-            background: rgba(255,255,255,0.08);
-            border-radius: 5px;
-            margin: 4px 0 6px;
-            position: relative;
-            overflow: hidden;
-        }
-        .svc-temp-fill {
-            height: 100%;
-            border-radius: 5px;
-            transition: width 0.3s, background 0.3s;
-        }
-        .svc-throttle-warn {
-            color: #f80;
-            font-size: 10px;
-            animation: blink 0.8s infinite;
-        }
-        @keyframes blink { 50% { opacity: 0.3; } }
+/* Servicer thermal */
+#hud-servicer{bottom:60px;right:14px;width:250px}
+.temp-bar{width:100%;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;margin:3px 0 5px}
+.temp-fill{height:100%;border-radius:4px;transition:width .3s,background .3s}
+@keyframes blink{50%{opacity:.3}}
+.blink{animation:blink .8s infinite}
 
-        /* Controls (bottom-center) */
-        #hud-controls {
-            bottom: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        .ctrl-btn {
-            background: rgba(0, 140, 255, 0.15);
-            border: 1px solid rgba(0, 140, 255, 0.4);
-            color: #0af;
-            padding: 8px 16px;
-            border-radius: 4px;
-            font-family: inherit;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.15s;
-        }
-        .ctrl-btn:hover {
-            background: rgba(0, 140, 255, 0.3);
-            border-color: #0af;
-        }
-        .ctrl-btn.active {
-            background: rgba(0, 200, 100, 0.2);
-            border-color: #0c6;
-            color: #0c6;
-        }
+/* Decision panel */
+#hud-decision{bottom:60px;left:14px;width:340px;max-height:200px;overflow-y:auto}
+.score-row{display:flex;align-items:center;margin:2px 0;font-size:10px}
+.score-bar{flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin:0 6px}
+.score-fill{height:100%;border-radius:2px}
+.score-id{width:80px;color:#888}
+.score-val{width:30px;text-align:right;color:#aaa}
 
-        /* Connection status */
-        #conn-status {
-            position: fixed;
-            top: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 10px;
-            padding: 4px 12px;
-            border-radius: 10px;
-            background: rgba(255, 160, 0, 0.2);
-            color: #fa0;
-            border: 1px solid rgba(255, 160, 0, 0.3);
-        }
-        #conn-status.live {
-            background: rgba(0, 200, 100, 0.2);
-            color: #0c6;
-            border-color: rgba(0, 200, 100, 0.3);
-        }
+/* Event log */
+#hud-events{bottom:60px;left:360px;width:320px;max-height:200px}
+#event-list{max-height:150px;overflow-y:auto;font-size:10px;line-height:1.5}
+.evt{color:#888;border-left:2px solid #0a3a5a;padding-left:6px;margin:2px 0}
+.evt .evt-time{color:#0af;margin-right:4px}
 
-        /* Tooltip */
-        #tooltip {
-            position: fixed;
-            background: rgba(0, 8, 20, 0.95);
-            border: 1px solid #0af;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            pointer-events: none;
-            display: none;
-            z-index: 100;
-        }
-    </style>
+/* Controls */
+#hud-controls{bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center}
+.btn{background:rgba(0,140,255,0.12);border:1px solid rgba(0,140,255,0.35);color:#0af;padding:6px 14px;border-radius:4px;font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s}
+.btn:hover{background:rgba(0,140,255,0.25);border-color:#0af}
+.btn.on{background:rgba(0,200,100,0.15);border-color:#0c6;color:#0c6}
+
+/* Telemetry chart */
+#hud-chart{top:14px;left:360px;width:300px}
+#chart-canvas{width:100%;border-radius:3px;background:rgba(0,4,12,0.6)}
+
+/* Connection */
+#conn{position:fixed;top:14px;left:50%;transform:translateX(-50%);font-size:10px;padding:3px 10px;border-radius:10px;background:rgba(255,160,0,0.2);color:#fa0;border:1px solid rgba(255,160,0,0.3);z-index:20}
+#conn.live{background:rgba(0,200,100,0.2);color:#0c6;border-color:rgba(0,200,100,0.3)}
+
+/* PiP docking camera */
+#pip-frame{position:fixed;bottom:270px;right:14px;width:240px;height:160px;border:1px solid rgba(0,255,100,0.3);border-radius:4px;overflow:hidden;display:none;z-index:15}
+#pip-label{position:absolute;top:4px;left:8px;font-size:9px;color:#0f8;text-transform:uppercase;letter-spacing:1px;z-index:16}
+#pip-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:16}
+
+/* Tooltip */
+#tooltip{position:fixed;background:rgba(0,8,20,0.95);border:1px solid #0af;padding:5px 8px;border-radius:4px;font-size:10px;pointer-events:none;display:none;z-index:100}
+</style>
 </head>
 <body>
 
 <div id="canvas-container"></div>
 
-<!-- HUD: Mission Status -->
 <div class="hud" id="hud-mission">
     <h2>Mission Control</h2>
     <div class="phase" id="phase-display">MONITORING</div>
-    <div class="status-msg" id="status-msg">Initializing simulation...</div>
-    <div style="margin-top:8px; font-size:11px; color:#666;">
-        <span>Sim Time: <span id="sim-time" style="color:#aaa">0s</span></span>
-        &nbsp;|&nbsp;
-        <span>Servicer Fuel: <span id="svc-fuel" style="color:#aaa">50 kg</span></span>
+    <div class="status-msg" id="status-msg">Initializing...</div>
+    <div style="margin-top:6px;font-size:10px;color:#555">
+        Sim: <span id="sim-time" style="color:#aaa">0s</span> |
+        Fuel: <span id="svc-fuel" style="color:#aaa">50kg</span>
     </div>
 </div>
 
-<!-- HUD: Satellite List -->
+<div class="hud" id="hud-chart">
+    <h2>Thermal Telemetry</h2>
+    <canvas id="chart-canvas" width="268" height="100"></canvas>
+</div>
+
 <div class="hud" id="hud-satellites">
-    <h2>Constellation Health</h2>
+    <h2>Constellation</h2>
     <div id="sat-list"></div>
 </div>
 
-<!-- HUD: Selected Satellite Detail -->
 <div class="hud" id="hud-detail">
-    <h2>Satellite Detail</h2>
+    <h2>Detail</h2>
     <div id="detail-content"></div>
-    <button class="ctrl-btn" id="btn-service" style="margin-top:10px; width:100%;">
-        DISPATCH SERVICER
-    </button>
+    <button class="btn" id="btn-service" style="margin-top:8px;width:100%">DISPATCH SERVICER</button>
 </div>
 
-<!-- HUD: Servicer / Pi Thermal -->
 <div class="hud" id="hud-servicer">
-    <h2>Servicer Onboard Computer</h2>
-    <div style="font-size:10px; color:#666; margin-bottom:6px;">
-        Hardware: Raspberry Pi Zero 2 W (live)
-    </div>
-    <div class="label" style="color:#888; font-size:10px;">CPU TEMPERATURE</div>
-    <div id="pi-temp-value" style="font-size:20px; color:#0f8;">-- C</div>
-    <div class="svc-temp-bar">
-        <div class="svc-temp-fill" id="pi-temp-bar" style="width:0%; background:#0f8;"></div>
-    </div>
-    <div id="pi-throttle-msg" style="font-size:10px; color:#666;">System nominal</div>
-    <div style="margin-top:8px; font-size:10px; color:#555; border-top:1px solid rgba(255,255,255,0.05); padding-top:6px;">
-        <div>Approach Speed: <span id="svc-speed-mult" style="color:#aaa">100%</span></div>
-        <div>Thruster Eff: <span id="svc-thruster-eff" style="color:#aaa">100%</span></div>
+    <h2>Servicer Computer (Pi Zero 2 W)</h2>
+    <div class="label">CPU Temperature</div>
+    <div id="pi-temp-val" style="font-size:18px;color:#0f8">-- C</div>
+    <div class="temp-bar"><div class="temp-fill" id="pi-temp-bar" style="width:0%;background:#0f8"></div></div>
+    <div id="pi-status" style="font-size:10px;color:#666">System nominal</div>
+    <div style="margin-top:6px;font-size:10px;color:#444">
+        Approach: <span id="svc-spd" style="color:#aaa">100%</span> |
+        Thrust: <span id="svc-thr" style="color:#aaa">100%</span>
     </div>
 </div>
 
-<!-- Controls -->
+<div class="hud" id="hud-decision">
+    <h2>Autonomous Reasoning</h2>
+    <div id="decision-reason" style="font-size:10px;color:#0af;margin-bottom:6px">—</div>
+    <div id="decision-scores"></div>
+</div>
+
+<div class="hud" id="hud-events">
+    <h2>Event Log</h2>
+    <div id="event-list"></div>
+</div>
+
 <div class="hud" id="hud-controls">
-    <button class="ctrl-btn" id="btn-pause">PAUSE</button>
-    <button class="ctrl-btn" id="btn-speed-1x">1x</button>
-    <button class="ctrl-btn active" id="btn-speed-10x">10x</button>
-    <button class="ctrl-btn" id="btn-speed-50x">50x</button>
-    <span style="color:#444; margin:0 6px;">|</span>
-    <button class="ctrl-btn active" id="btn-view-formation">FORMATION</button>
-    <button class="ctrl-btn" id="btn-view-orbit">ORBITAL</button>
-    <span style="color:#555; font-size:10px; margin-left:8px;">
-        Click satellite to inspect | Scroll to zoom | Drag to orbit
-    </span>
+    <button class="btn" id="btn-pause">PAUSE</button>
+    <button class="btn" id="btn-1x">1x</button>
+    <button class="btn on" id="btn-10x">10x</button>
+    <button class="btn" id="btn-50x">50x</button>
+    <span style="color:#333;margin:0 4px">|</span>
+    <button class="btn on" id="btn-vf">FORMATION</button>
+    <button class="btn" id="btn-vo">ORBITAL</button>
 </div>
 
-<!-- Connection Status -->
-<div id="conn-status">DEMO MODE</div>
-
-<!-- Tooltip -->
+<div id="conn">DEMO MODE</div>
 <div id="tooltip"></div>
 
-<!-- ── Three.js ─────────────────────────────────────────── -->
-<script type="importmap">
-{
-    "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-    }
-}
-</script>
+<!-- PiP docking camera -->
+<div id="pip-frame">
+    <div id="pip-label">DOCKING CAM</div>
+    <canvas id="pip-overlay"></canvas>
+</div>
 
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// ════════════════════════════════════════════════════════════════════
-//  CONFIGURATION
-// ════════════════════════════════════════════════════════════════════
+// ═══ Config ════════════════════════════════════════════════════════
+const S = 1/1000, N = 8, POLL = 150;
+const VIEW_F = {p:[8,5,10],t:[0,0,0]};
+const VIEW_O = {p:[0,35,50],t:[0,-12,0]};
+const SC = {NOMINAL:0x00ff88,WARNING:0xffaa00,CRITICAL:0xff2200,OFFLINE:0x555555};
 
-const SCALE         = 1 / 1000;
-const NUM_SATS      = 8;
-const POLL_INTERVAL = 200;
-const TELEMETRY_URL = 'telemetry.json';
+// ═══ Renderer ══════════════════════════════════════════════════════
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.01,5000);
+const ren = new THREE.WebGLRenderer({antialias:true,alpha:true});
+ren.setSize(innerWidth,innerHeight);
+ren.setPixelRatio(Math.min(devicePixelRatio,2));
+ren.toneMapping = THREE.ACESFilmicToneMapping;
+ren.autoClear = false;
+document.getElementById('canvas-container').appendChild(ren.domElement);
 
-// Camera presets
-const VIEW_FORMATION = { pos: [8, 5, 10],  target: [0, 0, 0] };
-const VIEW_ORBITAL   = { pos: [0, 35, 50], target: [0, -12, 0] };
+cam.position.set(8,5,10);
+const ctrl = new OrbitControls(cam,ren.domElement);
+ctrl.enableDamping=true;ctrl.dampingFactor=0.08;ctrl.minDistance=1;ctrl.maxDistance=200;
 
-// Pi thermal thresholds (same as in C++ config)
-const PI_TEMP_NOMINAL  = 55;
-const PI_TEMP_WARNING  = 65;
-const PI_TEMP_CRITICAL = 75;
-const PI_TEMP_THROTTLE = 80;
+// Docking PiP camera
+const dockCam = new THREE.PerspectiveCamera(50,240/160,0.1,2000);
 
-// ════════════════════════════════════════════════════════════════════
-//  SCENE SETUP
-// ════════════════════════════════════════════════════════════════════
+// ═══ Lighting ══════════════════════════════════════════════════════
+scene.add(new THREE.AmbientLight(0x334466,0.5));
+const sun = new THREE.DirectionalLight(0xffeedd,2);sun.position.set(50,30,40);scene.add(sun);
+scene.add(new THREE.DirectionalLight(0x2244aa,0.3)).position.set(0,-30,0);
 
-const scene    = new THREE.Scene();
-const camera   = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.01, 5000);
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+// Stars
+const sg=new THREE.BufferGeometry(),sv=[];
+for(let i=0;i<6000;i++)sv.push((Math.random()-.5)*2000,(Math.random()-.5)*2000,(Math.random()-.5)*2000);
+sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
+scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:0.4})));
 
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-document.getElementById('canvas-container').appendChild(renderer.domElement);
-
-camera.position.set(8, 5, 10);
-camera.lookAt(0, 0, 0);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.minDistance   = 1;
-controls.maxDistance   = 200;
-
-// ── Lighting ──
-scene.add(new THREE.AmbientLight(0x334466, 0.5));
-const sunLight = new THREE.DirectionalLight(0xffeedd, 2.0);
-sunLight.position.set(50, 30, 40);
-scene.add(sunLight);
-
-// Subtle fill light from below (Earth albedo reflection)
-const fillLight = new THREE.DirectionalLight(0x2244aa, 0.3);
-fillLight.position.set(0, -30, 0);
-scene.add(fillLight);
-
-// ── Starfield ──
-const starGeo = new THREE.BufferGeometry();
-const starVerts = [];
-for (let i = 0; i < 6000; i++) {
-    starVerts.push(
-        (Math.random() - 0.5) * 2000,
-        (Math.random() - 0.5) * 2000,
-        (Math.random() - 0.5) * 2000
-    );
-}
-starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.4 })));
-
-// ════════════════════════════════════════════════════════════════════
-//  3D EARTH — Procedural texture with continents
-// ════════════════════════════════════════════════════════════════════
-
-function createEarthTexture(size) {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size / 2;
-    const ctx = canvas.getContext('2d');
-
-    // Ocean base
-    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    grad.addColorStop(0, '#0a1a3a');
-    grad.addColorStop(0.15, '#0d3060');
-    grad.addColorStop(0.5, '#104080');
-    grad.addColorStop(0.85, '#0d3060');
-    grad.addColorStop(1, '#0a1a3a');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Simple seeded random for repeatable continents
-    let seed = 42;
-    function rand() { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; }
-
-    // Generate continent-like blobs
-    const continents = [
-        // Roughly: North America, South America, Europe/Africa, Asia, Australia
-        { cx: 0.22, cy: 0.35, rx: 0.08, ry: 0.12 },
-        { cx: 0.25, cy: 0.6,  rx: 0.04, ry: 0.10 },
-        { cx: 0.50, cy: 0.35, rx: 0.04, ry: 0.15 },
-        { cx: 0.52, cy: 0.60, rx: 0.05, ry: 0.08 },
-        { cx: 0.65, cy: 0.35, rx: 0.12, ry: 0.10 },
-        { cx: 0.72, cy: 0.30, rx: 0.08, ry: 0.06 },
-        { cx: 0.80, cy: 0.62, rx: 0.04, ry: 0.04 },
-    ];
-
-    continents.forEach(c => {
-        // Draw several overlapping ellipses for organic shapes
-        for (let k = 0; k < 8; k++) {
-            const ox = (rand() - 0.5) * c.rx * 1.5;
-            const oy = (rand() - 0.5) * c.ry * 1.0;
-            const srx = c.rx * (0.4 + rand() * 0.8);
-            const sry = c.ry * (0.4 + rand() * 0.8);
-
-            const px = (c.cx + ox) * canvas.width;
-            const py = (c.cy + oy) * canvas.height;
-            const prx = srx * canvas.width;
-            const pry = sry * canvas.height;
-
-            ctx.beginPath();
-            ctx.ellipse(px, py, prx, pry, rand() * Math.PI, 0, Math.PI * 2);
-            // Green/brown land colors
-            const g = Math.floor(80 + rand() * 60);
-            const r = Math.floor(40 + rand() * 50);
-            const b = Math.floor(20 + rand() * 30);
-            ctx.fillStyle = `rgb(${r},${g},${b})`;
-            ctx.fill();
+// ═══ Earth ═════════════════════════════════════════════════════════
+function makeEarthTex(sz){
+    const c=document.createElement('canvas');c.width=sz;c.height=sz/2;
+    const x=c.getContext('2d');
+    const g=x.createLinearGradient(0,0,0,c.height);
+    g.addColorStop(0,'#0a1a3a');g.addColorStop(.15,'#0d3060');g.addColorStop(.5,'#104080');g.addColorStop(.85,'#0d3060');g.addColorStop(1,'#0a1a3a');
+    x.fillStyle=g;x.fillRect(0,0,c.width,c.height);
+    let s=42;const r=()=>{s=(s*16807)%2147483647;return s/2147483647};
+    [{cx:.22,cy:.35,rx:.08,ry:.12},{cx:.25,cy:.6,rx:.04,ry:.10},{cx:.50,cy:.35,rx:.04,ry:.15},{cx:.52,cy:.60,rx:.05,ry:.08},{cx:.65,cy:.35,rx:.12,ry:.10},{cx:.72,cy:.30,rx:.08,ry:.06},{cx:.80,cy:.62,rx:.04,ry:.04}].forEach(ct=>{
+        for(let k=0;k<8;k++){
+            const ox=(r()-.5)*ct.rx*1.5,oy=(r()-.5)*ct.ry,srx=ct.rx*(.4+r()*.8),sry=ct.ry*(.4+r()*.8);
+            x.beginPath();x.ellipse((ct.cx+ox)*c.width,(ct.cy+oy)*c.height,srx*c.width,sry*c.height,r()*Math.PI,0,Math.PI*2);
+            x.fillStyle=`rgb(${40+r()*50|0},${80+r()*60|0},${20+r()*30|0})`;x.fill();
         }
     });
+    // Poles
+    const ig=x.createLinearGradient(0,0,0,c.height*.08);ig.addColorStop(0,'rgba(220,230,240,.9)');ig.addColorStop(1,'rgba(220,230,240,0)');x.fillStyle=ig;x.fillRect(0,0,c.width,c.height*.08);
+    const ig2=x.createLinearGradient(0,c.height*.92,0,c.height);ig2.addColorStop(0,'rgba(220,230,240,0)');ig2.addColorStop(1,'rgba(220,230,240,.9)');x.fillStyle=ig2;x.fillRect(0,c.height*.92,c.width,c.height*.08);
+    // Clouds
+    x.globalAlpha=.1;for(let i=0;i<25;i++){const cx2=r()*c.width,cy2=r()*c.height,cr=20+r()*70;const cg=x.createRadialGradient(cx2,cy2,0,cx2,cy2,cr);cg.addColorStop(0,'rgba(255,255,255,.5)');cg.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=cg;x.fillRect(cx2-cr,cy2-cr,cr*2,cr*2)}x.globalAlpha=1;
+    return new THREE.CanvasTexture(c);
+}
+const ER=12,et=makeEarthTex(1024);et.wrapS=THREE.RepeatWrapping;
+const earth=new THREE.Mesh(new THREE.SphereGeometry(ER,64,48),new THREE.MeshPhongMaterial({map:et,specular:0x222244,shininess:20,emissive:0x050a18,emissiveIntensity:.3}));
+earth.position.set(0,-ER-12,0);earth.rotation.y=-.5;scene.add(earth);
+for(let i=1;i<=3;i++){const m=new THREE.Mesh(new THREE.SphereGeometry(ER+i*.15,48,48),new THREE.MeshBasicMaterial({color:0x4488ff,transparent:true,opacity:.04/i,side:THREE.BackSide,depthWrite:false}));m.position.copy(earth.position);scene.add(m)}
+// Rim shader
+const rim=new THREE.Mesh(new THREE.SphereGeometry(ER+.08,64,48),new THREE.ShaderMaterial({vertexShader:`varying vec3 vN,vP;void main(){vN=normalize(normalMatrix*normal);vP=(modelViewMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*vec4(vP,1.);}`,fragmentShader:`varying vec3 vN,vP;void main(){float r=1.-max(dot(normalize(-vP),vN),0.);r=pow(r,3.);gl_FragColor=vec4(.3,.6,1.,r*.6);}`,transparent:true,depthWrite:false}));
+rim.position.copy(earth.position);scene.add(rim);
+// Orbit ring
+const oring=new THREE.Mesh(new THREE.TorusGeometry(14,.02,8,128),new THREE.MeshBasicMaterial({color:0x0a4488,transparent:true,opacity:.3}));
+oring.position.copy(earth.position);oring.position.y+=ER+12;oring.rotation.x=Math.PI/2;scene.add(oring);
+// Grid
+const grid=new THREE.GridHelper(20,20,0x0a2a4a,0x051525);grid.position.y=-.5;grid.material.transparent=true;grid.material.opacity=.3;scene.add(grid);
 
-    // Polar ice caps
-    const icGrad1 = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.08);
-    icGrad1.addColorStop(0, 'rgba(220,230,240,0.9)');
-    icGrad1.addColorStop(1, 'rgba(220,230,240,0)');
-    ctx.fillStyle = icGrad1;
-    ctx.fillRect(0, 0, canvas.width, canvas.height * 0.08);
+// ═══ Satellites ════════════════════════════════════════════════════
+const sM=[],sG=[],sGrp=new THREE.Group();scene.add(sGrp);
+for(let i=0;i<N;i++){
+    const m=new THREE.Mesh(new THREE.OctahedronGeometry(.15,0),new THREE.MeshPhongMaterial({color:0x00ff88,emissive:0x004422}));
+    m.userData.sid=i;sGrp.add(m);sM.push(m);
+    const pg=new THREE.BoxGeometry(.5,.02,.12),pm=new THREE.MeshPhongMaterial({color:0x1a1a5a,emissive:0x0a0a3a});
+    m.add(new THREE.Mesh(pg,pm)).position.x=-.3;m.add(new THREE.Mesh(pg,pm.clone())).position.x=.3;
+    const gl=new THREE.PointLight(0x00ff88,.3,2);m.add(gl);sG.push(gl);
+}
 
-    const icGrad2 = ctx.createLinearGradient(0, canvas.height * 0.92, 0, canvas.height);
-    icGrad2.addColorStop(0, 'rgba(220,230,240,0)');
-    icGrad2.addColorStop(1, 'rgba(220,230,240,0.9)');
-    ctx.fillStyle = icGrad2;
-    ctx.fillRect(0, canvas.height * 0.92, canvas.width, canvas.height * 0.08);
+// Keep-out zone wireframes
+const koMeshes=[];
+const koGeo=new THREE.SphereGeometry(200*S,16,12);
+for(let i=0;i<N;i++){
+    const m=new THREE.Mesh(koGeo,new THREE.MeshBasicMaterial({color:0xff0000,transparent:true,opacity:0,wireframe:true,depthWrite:false}));
+    scene.add(m);koMeshes.push(m);
+}
 
-    // Cloud wisps
-    ctx.globalAlpha = 0.12;
-    for (let i = 0; i < 30; i++) {
-        const cx2 = rand() * canvas.width;
-        const cy2 = rand() * canvas.height;
-        const cr  = 20 + rand() * 80;
-        const cg  = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, cr);
-        cg.addColorStop(0, 'rgba(255,255,255,0.5)');
-        cg.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = cg;
-        ctx.fillRect(cx2 - cr, cy2 - cr, cr * 2, cr * 2);
+// Servicer
+const svc=new THREE.Mesh(new THREE.ConeGeometry(.12,.35,6),new THREE.MeshPhongMaterial({color:0xffcc00,emissive:0x554400}));
+svc.rotation.x=Math.PI;scene.add(svc);
+const svcGl=new THREE.PointLight(0xff6600,0,1.5);svc.add(svcGl);
+
+// Trail
+const TL=150,tP=new Float32Array(TL*3),tGeo=new THREE.BufferGeometry();
+tGeo.setAttribute('position',new THREE.BufferAttribute(tP,3));
+const trail=new THREE.Line(tGeo,new THREE.LineBasicMaterial({color:0xff8800,transparent:true,opacity:.4}));
+scene.add(trail);let tI=0;
+
+// Trajectory prediction line
+const TMAX=60;
+const trajPosArr=new Float32Array(TMAX*3);
+const trajColArr=new Float32Array(TMAX*3);
+const trajGeo=new THREE.BufferGeometry();
+trajGeo.setAttribute('position',new THREE.BufferAttribute(trajPosArr,3));
+trajGeo.setAttribute('color',new THREE.BufferAttribute(trajColArr,3));
+const trajLine=new THREE.Line(trajGeo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:.8}));
+scene.add(trajLine);
+
+// ═══ State ═════════════════════════════════════════════════════════
+let D=null,selId=-1,live=false,paused=false,spd=10,demoT=0,view='f';
+let camAnim=false,camFrom={},camTo={},camT=0;
+
+// Chart history
+const chartHist={};
+const CHART_MAX=200;
+
+// ═══ Demo data ═════════════════════════════════════════════════════
+function demoData(t){
+    const sats=[];
+    for(let i=0;i<N;i++){
+        const a=(2*Math.PI*i)/N,R=5000;
+        const px=R*Math.cos(a)*.3,py=R*Math.sin(a),pz=R*Math.cos(a+Math.PI/4)*.2;
+        const bt=50+i*4+Math.sin(t*.02+i)*8,spike=(i===5&&t>30)?Math.min((t-30)*.5,35):0;
+        const gt=bt+spike,re=Math.max(.3,1-i*.06-t*.0002),fu=Math.max(0,10-i*.5-t*.002),lo=Math.min(1,.6+i*.04+t*.001);
+        let st='NOMINAL';if(gt>=90||fu<1)st='CRITICAL';else if(gt>=75||fu<3||re<.5)st='WARNING';
+        let u=0;if(gt>75)u+=100*((gt-75)/25)**2;if(fu<3)u+=50*(1-fu/3);
+        sats.push({id:i,name:'COMPUTE-'+i,pos:[px,py,pz],vel:[0,0,0],att:[1,0,0,0],gpu_temp:gt,radiator_eff:re,fuel:fu,compute_load:lo,solar_power:4083,power_draw:200+lo*2400,in_eclipse:Math.sin(t*.05+i*.8)>.7,status:st,urgency:u});
     }
-    ctx.globalAlpha = 1.0;
-
-    return new THREE.CanvasTexture(canvas);
+    let tid=-1,mu=5;sats.forEach(s=>{if(s.urgency>mu){mu=s.urgency;tid=s.id}});
+    const pk=[0,-10000,0];let sp=pk,ph='MONITORING',sm='Monitoring...',pr=0;
+    if(tid>=0){const tg=sats[tid],ap=Math.min(1,Math.max(0,(t-20)/40));
+        sp=[pk[0]+(tg.pos[0]-pk[0])*ap,pk[1]+(tg.pos[1]-pk[1])*ap,pk[2]+(tg.pos[2]-pk[2])*ap];
+        if(ap<.3){ph='TRANSIT';sm=`Transit to ${tg.name} | Range: ${((1-ap/.3)*10000)|0}m`}
+        else if(ap<.8){ph='RENDEZVOUS';sm='Proximity ops...'}
+        else if(ap<.95){ph='DOCKING';sm='Final approach...'}
+        else{ph='SERVICING';sm='Servicing '+((Math.min(1,(t-58)/20)*100)|0)+'%'}
+    }
+    // Demo trajectory
+    const traj=[];if(tid>=0&&ph==='TRANSIT'){
+        const tg=sats[tid];for(let i=0;i<40;i++){const f=i/40;
+            traj.push([sp[0]+(tg.pos[0]-sp[0])*f+Math.sin(f*3)*200,sp[1]+(tg.pos[1]-sp[1])*f+Math.cos(f*2.5)*150,sp[2]+(tg.pos[2]-sp[2])*f+Math.sin(f*4)*100]);
+        }
+    }
+    // Demo scores
+    const scores=sats.map(s=>({id:s.id,temp:s.gpu_temp>75?100*((s.gpu_temp-75)/25)**2:0,fuel:s.fuel<3?50*(1-s.fuel/3):0,rad:s.radiator_eff<.6?30*(1-s.radiator_eff):0,time:0,total:s.urgency}));
+    const reason=tid>=0?`COMPUTE-${tid}: thermal(${scores[tid].temp|0}) + fuel(${scores[tid].fuel|0}) + rad(${scores[tid].rad|0}) = ${scores[tid].total|0}`:'No urgent targets';
+    const events=[{t:t-10,msg:'System monitoring active'},{t:t-5,msg:tid>=0?`Target COMPUTE-${tid} selected`:'All nominal'}];
+    return{sim_time:t,pi_cpu_temp:42+Math.sin(t*.1)*5,mission:{phase:ph,target_id:tid,mission_time:t,phase_progress:pr,status:sm},servicer:{pos:sp,vel:[0,0,0],att:[1,0,0,0],fuel:50-t*.05,target_id:tid},satellites:sats,trajectory:traj,decision:{scores,reason},events};
 }
 
-// Earth sphere
-const EARTH_RADIUS = 12;
-const earthTex     = createEarthTexture(1024);
-earthTex.wrapS     = THREE.RepeatWrapping;
-const earthGeo     = new THREE.SphereGeometry(EARTH_RADIUS, 64, 48);
-const earthMat     = new THREE.MeshPhongMaterial({
-    map: earthTex,
-    specular: 0x222244,
-    shininess: 20,
-    emissive: 0x050a18,
-    emissiveIntensity: 0.3,
-});
-const earth = new THREE.Mesh(earthGeo, earthMat);
-earth.position.set(0, -EARTH_RADIUS - 12, 0);
-earth.rotation.y = -0.5;  // initial rotation
-scene.add(earth);
+// ═══ Telemetry polling ═════════════════════════════════════════════
+async function poll(){try{const r=await fetch('telemetry.json?t='+Date.now());if(r.ok){D=await r.json();if(!live){live=true;document.getElementById('conn').textContent='LIVE — C++ ENGINE';document.getElementById('conn').className='live'}}}catch{live=false;document.getElementById('conn').textContent='DEMO MODE';document.getElementById('conn').className=''}}
+setInterval(poll,POLL);poll();
 
-// Atmosphere glow (multiple layers)
-for (let i = 1; i <= 3; i++) {
-    const atmGeo = new THREE.SphereGeometry(EARTH_RADIUS + i * 0.15, 48, 48);
-    const atmMat = new THREE.MeshBasicMaterial({
-        color: 0x4488ff,
-        transparent: true,
-        opacity: 0.04 / i,
-        side: THREE.BackSide,
-        depthWrite: false,
+// ═══ Chart ═════════════════════════════════════════════════════════
+const chartCvs=document.getElementById('chart-canvas');
+const chartCtx=chartCvs.getContext('2d');
+
+function addChartPt(id,val){if(!chartHist[id])chartHist[id]=[];chartHist[id].push(val);if(chartHist[id].length>CHART_MAX)chartHist[id].shift()}
+
+function drawChart(){
+    const w=chartCvs.width,h=chartCvs.height;
+    chartCtx.fillStyle='rgba(0,4,12,0.85)';chartCtx.fillRect(0,0,w,h);
+    // Grid
+    chartCtx.strokeStyle='rgba(0,140,255,0.08)';chartCtx.lineWidth=1;
+    for(let i=0;i<5;i++){const y=(i/4)*h;chartCtx.beginPath();chartCtx.moveTo(0,y);chartCtx.lineTo(w,y);chartCtx.stroke()}
+    // Y labels
+    chartCtx.fillStyle='#446';chartCtx.font='8px monospace';
+    chartCtx.fillText('100C',2,10);chartCtx.fillText('50C',2,h/2);chartCtx.fillText('0C',2,h-2);
+    // Warning line at 75C
+    chartCtx.strokeStyle='rgba(255,170,0,0.3)';chartCtx.setLineDash([4,4]);
+    chartCtx.beginPath();chartCtx.moveTo(0,h*.25);chartCtx.lineTo(w,h*.25);chartCtx.stroke();
+    chartCtx.setLineDash([]);
+    // Critical line at 90C
+    chartCtx.strokeStyle='rgba(255,34,0,0.3)';chartCtx.setLineDash([4,4]);
+    chartCtx.beginPath();chartCtx.moveTo(0,h*.1);chartCtx.lineTo(w,h*.1);chartCtx.stroke();
+    chartCtx.setLineDash([]);
+    // Series
+    const colors=['#00ff88','#ffaa00','#ff2200','#0af','#a0f','#ff0','#0ff','#f0f'];
+    for(let id=0;id<N;id++){
+        const d=chartHist['t'+id];if(!d||d.length<2)continue;
+        chartCtx.strokeStyle=colors[id%colors.length];chartCtx.lineWidth=1;chartCtx.globalAlpha=.7;
+        chartCtx.beginPath();
+        for(let i=0;i<d.length;i++){
+            const x=(i/(CHART_MAX-1))*w,y=h-(d[i]/100)*h;
+            i===0?chartCtx.moveTo(x,y):chartCtx.lineTo(x,y);
+        }
+        chartCtx.stroke();
+    }
+    chartCtx.globalAlpha=1;
+}
+
+// ═══ Pi thermal effect ═════════════════════════════════════════════
+function piEffect(t){
+    if(t<0)return{s:1,th:1,st:'No data',c:'#666'};
+    if(t<55)return{s:1,th:1,st:'Nominal',c:'#0f8'};
+    if(t<65){const r=(t-55)/10;return{s:1-r*.1,th:1,st:'Warm',c:'#ff0'}}
+    if(t<75){const r=(t-65)/10;return{s:.9-r*.2,th:.9-r*.15,st:'THERMAL WARN',c:'#f80'}}
+    const r=Math.min(1,(t-75)/5);return{s:.7-r*.3,th:.75-r*.25,st:'THROTTLE',c:'#f22'};
+}
+
+// ═══ HUD ═══════════════════════════════════════════════════════════
+function updateHUD(d){
+    if(!d)return;
+    const pe=document.getElementById('phase-display');pe.textContent=d.mission.phase;
+    pe.style.color=d.mission.phase==='SERVICING'?'#ff0':d.mission.phase==='MONITORING'?'#0f0':'#0af';
+    document.getElementById('status-msg').textContent=d.mission.status;
+    document.getElementById('sim-time').textContent=(d.sim_time|0)+'s';
+    document.getElementById('svc-fuel').textContent=(d.servicer.fuel|0)+'kg';
+
+    // Pi temp
+    const pt=d.pi_cpu_temp,pe2=piEffect(pt);
+    document.getElementById('pi-temp-val').textContent=pt>=0?pt.toFixed(1)+' C':'--';
+    document.getElementById('pi-temp-val').style.color=pe2.c;
+    const pb=document.getElementById('pi-temp-bar');pb.style.width=Math.min(100,pt>=0?(pt/80)*100:0)+'%';pb.style.background=pe2.c;
+    const ps=document.getElementById('pi-status');ps.textContent=pe2.st;ps.style.color=pe2.c;ps.className=pt>=75?'blink':'';
+    document.getElementById('svc-spd').textContent=(pe2.s*100|0)+'%';document.getElementById('svc-spd').style.color=pe2.c;
+    document.getElementById('svc-thr').textContent=(pe2.th*100|0)+'%';document.getElementById('svc-thr').style.color=pe2.c;
+
+    // Satellite list
+    let lh='';d.satellites.forEach(s=>{
+        const c=SC[s.status]||0x555555,h='#'+c.toString(16).padStart(6,'0'),sl=s.id===selId?' sel':'';
+        lh+=`<div class="sat-row${sl}" data-id="${s.id}"><div class="sat-dot" style="background:${h}"></div><span class="sat-name">${s.name}</span><span class="sat-stat" style="color:${h}">${s.status}</span><span class="sat-stat">${s.gpu_temp|0}C</span><span class="sat-stat">${s.fuel.toFixed(1)}kg</span></div>`;
     });
-    const atm = new THREE.Mesh(atmGeo, atmMat);
-    atm.position.copy(earth.position);
-    scene.add(atm);
-}
+    document.getElementById('sat-list').innerHTML=lh;
+    document.querySelectorAll('.sat-row').forEach(r=>r.addEventListener('click',()=>{selId=parseInt(r.dataset.id)}));
 
-// Thin bright atmosphere rim (visible from the side)
-const rimGeo = new THREE.SphereGeometry(EARTH_RADIUS + 0.08, 64, 48);
-const rimMat = new THREE.ShaderMaterial({
-    vertexShader: `
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        void main() {
-            vNormal = normalize(normalMatrix * normal);
-            vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
-            gl_Position = projectionMatrix * vec4(vPosition, 1.0);
-        }
-    `,
-    fragmentShader: `
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        void main() {
-            vec3 viewDir = normalize(-vPosition);
-            float rim = 1.0 - max(dot(viewDir, vNormal), 0.0);
-            rim = pow(rim, 3.0);
-            gl_FragColor = vec4(0.3, 0.6, 1.0, rim * 0.6);
-        }
-    `,
-    transparent: true,
-    depthWrite: false,
-    side: THREE.FrontSide,
-});
-const rimMesh = new THREE.Mesh(rimGeo, rimMat);
-rimMesh.position.copy(earth.position);
-scene.add(rimMesh);
+    // Detail
+    if(selId>=0){const s=d.satellites.find(x=>x.id===selId);if(s){
+        document.getElementById('hud-detail').style.display='block';
+        const tc=s.gpu_temp>90?'#f22':s.gpu_temp>75?'#fa0':'#0f8';
+        document.getElementById('detail-content').innerHTML=`
+            <div style="font-size:14px;color:#fff;margin-bottom:6px">${s.name}</div>
+            <div class="label">GPU Temp</div><div class="value" style="color:${tc}">${s.gpu_temp.toFixed(1)}C</div>
+            <div class="bar-outer"><div class="bar-inner" style="width:${Math.min(100,s.gpu_temp)}%;background:${tc}"></div></div>
+            <div class="label">Fuel</div><div class="value">${s.fuel.toFixed(1)}kg</div>
+            <div class="bar-outer"><div class="bar-inner" style="width:${(s.fuel/10)*100}%;background:#0af"></div></div>
+            <div class="label">Radiator</div><div class="value">${(s.radiator_eff*100).toFixed(0)}%</div>
+            <div class="bar-outer"><div class="bar-inner" style="width:${s.radiator_eff*100}%;background:#a0f"></div></div>
+            <div class="label">Load</div><div class="value">${(s.compute_load*100).toFixed(0)}%</div>
+            <div class="bar-outer"><div class="bar-inner" style="width:${s.compute_load*100}%;background:#ff0"></div></div>
+            <div class="label">Power</div><div class="value">${s.power_draw|0}W / ${s.solar_power|0}W ${s.in_eclipse?'(ECLIPSE)':''}</div>`;
+    }}else{document.getElementById('hud-detail').style.display='none'}
 
-// Orbital ring (where the constellation sits)
-const orbitRingGeo = new THREE.TorusGeometry(14, 0.02, 8, 128);
-const orbitRingMat = new THREE.MeshBasicMaterial({
-    color: 0x0a4488,
-    transparent: true,
-    opacity: 0.3,
-});
-const orbitRing = new THREE.Mesh(orbitRingGeo, orbitRingMat);
-orbitRing.position.copy(earth.position);
-orbitRing.position.y += EARTH_RADIUS + 12;  // at constellation altitude
-orbitRing.rotation.x = Math.PI / 2;
-scene.add(orbitRing);
-
-// ── Grid reference (formation plane) ──
-const gridHelper = new THREE.GridHelper(20, 20, 0x0a2a4a, 0x051525);
-gridHelper.position.y = -0.5;
-gridHelper.material.transparent = true;
-gridHelper.material.opacity = 0.3;
-scene.add(gridHelper);
-
-// ════════════════════════════════════════════════════════════════════
-//  SATELLITE & SERVICER 3D OBJECTS
-// ════════════════════════════════════════════════════════════════════
-
-const STATUS_COLORS = {
-    NOMINAL:  0x00ff88,
-    WARNING:  0xffaa00,
-    CRITICAL: 0xff2200,
-    OFFLINE:  0x555555
-};
-
-const satMeshes = [];
-const satGlows  = [];
-const satGroup  = new THREE.Group();
-scene.add(satGroup);
-
-for (let i = 0; i < NUM_SATS; i++) {
-    const geo  = new THREE.OctahedronGeometry(0.15, 0);
-    const mat  = new THREE.MeshPhongMaterial({ color: 0x00ff88, emissive: 0x004422 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.userData.satId = i;
-    satGroup.add(mesh);
-    satMeshes.push(mesh);
-
-    // Solar panels
-    const panelGeo = new THREE.BoxGeometry(0.5, 0.02, 0.12);
-    const panelMat = new THREE.MeshPhongMaterial({ color: 0x1a1a5a, emissive: 0x0a0a3a });
-    mesh.add(new THREE.Mesh(panelGeo, panelMat)).position.x = -0.3;
-    mesh.add(new THREE.Mesh(panelGeo, panelMat.clone())).position.x = 0.3;
-
-    // Health aura
-    const glow = new THREE.PointLight(0x00ff88, 0.3, 2);
-    mesh.add(glow);
-    satGlows.push(glow);
-}
-
-// Servicer mesh (yellow cone)
-const svcGeo  = new THREE.ConeGeometry(0.12, 0.35, 6);
-const svcMat  = new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x554400 });
-const svcMesh = new THREE.Mesh(svcGeo, svcMat);
-svcMesh.rotation.x = Math.PI;
-scene.add(svcMesh);
-
-const svcGlow = new THREE.PointLight(0xff6600, 0, 1.5);
-svcMesh.add(svcGlow);
-
-// Servicer trail
-const TRAIL_LEN = 120;
-const trailPositions = new Float32Array(TRAIL_LEN * 3);
-const trailGeo = new THREE.BufferGeometry();
-trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
-const trailMat = new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.4 });
-const trailLine = new THREE.Line(trailGeo, trailMat);
-scene.add(trailLine);
-let trailIdx = 0;
-
-// ════════════════════════════════════════════════════════════════════
-//  STATE
-// ════════════════════════════════════════════════════════════════════
-
-let telemetryData  = null;
-let selectedSatId  = -1;
-let useLiveData    = false;
-let simPaused      = false;
-let simSpeed       = 10;
-let demoTime       = 0;
-let currentView    = 'formation';  // 'formation' or 'orbital'
-
-// Camera animation
-let cameraAnimating = false;
-let cameraFrom      = {};
-let cameraTo        = {};
-let cameraAnimT     = 0;
-
-// ════════════════════════════════════════════════════════════════════
-//  DEMO SIMULATION
-// ════════════════════════════════════════════════════════════════════
-
-function generateDemoData(t) {
-    const sats = [];
-    for (let i = 0; i < NUM_SATS; i++) {
-        const angle  = (2 * Math.PI * i) / NUM_SATS;
-        const radius = 5000;
-        const px     = radius * Math.cos(angle) * 0.3;
-        const py     = radius * Math.sin(angle);
-        const pz     = radius * Math.cos(angle + Math.PI / 4) * 0.2;
-
-        const baseTemp   = 50 + i * 4 + Math.sin(t * 0.02 + i) * 8;
-        const tempSpike  = (i === 5 && t > 30) ? Math.min((t - 30) * 0.5, 35) : 0;
-        const gpuTemp    = baseTemp + tempSpike;
-        const radEff     = Math.max(0.3, 1.0 - i * 0.06 - t * 0.0002);
-        const fuel       = Math.max(0, 10 - i * 0.5 - t * 0.002);
-        const load       = Math.min(1.0, 0.6 + i * 0.04 + t * 0.001);
-
-        let status = 'NOMINAL';
-        if (gpuTemp >= 90 || fuel < 1) status = 'CRITICAL';
-        else if (gpuTemp >= 75 || fuel < 3 || radEff < 0.5) status = 'WARNING';
-
-        let urgency = 0;
-        if (gpuTemp > 75) urgency += 100 * Math.pow((gpuTemp - 75) / 25, 2);
-        if (fuel < 3) urgency += 50 * (1 - fuel / 3);
-
-        sats.push({
-            id: i, name: 'COMPUTE-' + i,
-            pos: [px, py, pz], vel: [0, 0, 0], att: [1, 0, 0, 0],
-            gpu_temp: gpuTemp, radiator_eff: radEff, fuel, compute_load: load,
-            solar_power: 4083, power_draw: 200 + load * 2400,
-            in_eclipse: Math.sin(t * 0.05 + i * 0.8) > 0.7,
-            status, urgency
+    // Decision reasoning
+    if(d.decision){
+        document.getElementById('decision-reason').textContent=d.decision.reason||'—';
+        let sh='';const mx=Math.max(1,...(d.decision.scores||[]).map(s=>s.total));
+        (d.decision.scores||[]).forEach(s=>{
+            const pct=mx>0?(s.total/mx)*100:0;
+            const c=s.total>50?'#f22':s.total>10?'#fa0':'#0f8';
+            sh+=`<div class="score-row"><span class="score-id">C-${s.id}</span><div class="score-bar"><div class="score-fill" style="width:${pct}%;background:${c}"></div></div><span class="score-val">${s.total|0}</span></div>`;
         });
+        document.getElementById('decision-scores').innerHTML=sh;
     }
 
-    let targetId = -1, maxUrg = 5;
-    sats.forEach(s => { if (s.urgency > maxUrg) { maxUrg = s.urgency; targetId = s.id; } });
-
-    const svcPark = [0, -10000, 0];
-    let svcPos = svcPark, phase = 'MONITORING', statusMsg = 'Monitoring constellation health...', progress = 0;
-
-    if (targetId >= 0) {
-        const target   = sats[targetId];
-        const approach = Math.min(1, Math.max(0, (t - 20) / 40));
-        svcPos = [
-            svcPark[0] + (target.pos[0] - svcPark[0]) * approach,
-            svcPark[1] + (target.pos[1] - svcPark[1]) * approach,
-            svcPark[2] + (target.pos[2] - svcPark[2]) * approach
-        ];
-        if      (approach < 0.3)  { phase = 'TRANSIT';    statusMsg = `Transit to ${target.name}`; }
-        else if (approach < 0.8)  { phase = 'RENDEZVOUS'; statusMsg = 'Proximity operations...'; }
-        else if (approach < 0.95) { phase = 'DOCKING';    statusMsg = 'Final approach...'; }
-        else                      { phase = 'SERVICING';  statusMsg = 'Servicing in progress...'; }
-    }
-
-    return {
-        sim_time: t,
-        pi_cpu_temp: 42 + Math.sin(t * 0.1) * 5,  // simulated Pi temp for demo
-        mission: { phase, target_id: targetId, mission_time: t, phase_progress: progress, status: statusMsg },
-        servicer: { pos: svcPos, vel: [0, 0, 0], att: [1, 0, 0, 0], fuel: 50 - t * 0.05, target_id: targetId },
-        satellites: sats
-    };
-}
-
-// ════════════════════════════════════════════════════════════════════
-//  TELEMETRY POLLING
-// ════════════════════════════════════════════════════════════════════
-
-async function fetchTelemetry() {
-    try {
-        const resp = await fetch(TELEMETRY_URL + '?t=' + Date.now());
-        if (resp.ok) {
-            telemetryData = await resp.json();
-            if (!useLiveData) {
-                useLiveData = true;
-                document.getElementById('conn-status').textContent = 'LIVE — C++ ENGINE';
-                document.getElementById('conn-status').className = 'live';
-            }
-        }
-    } catch {
-        useLiveData = false;
-        document.getElementById('conn-status').textContent = 'DEMO MODE';
-        document.getElementById('conn-status').className = '';
-    }
-}
-setInterval(fetchTelemetry, POLL_INTERVAL);
-fetchTelemetry();
-
-// ════════════════════════════════════════════════════════════════════
-//  Pi TEMPERATURE → SERVICER PERFORMANCE
-// ════════════════════════════════════════════════════════════════════
-
-function computePiThermalEffect(piTemp) {
-    if (piTemp < 0) return { speedMult: 1.0, thrusterEff: 1.0, status: 'No data', color: '#666' };
-
-    if (piTemp < PI_TEMP_NOMINAL) {
-        return { speedMult: 1.0, thrusterEff: 1.0, status: 'System nominal', color: '#0f8' };
-    } else if (piTemp < PI_TEMP_WARNING) {
-        const t = (piTemp - PI_TEMP_NOMINAL) / (PI_TEMP_WARNING - PI_TEMP_NOMINAL);
-        return { speedMult: 1.0 - t * 0.1, thrusterEff: 1.0, status: 'Warming up', color: '#ff0' };
-    } else if (piTemp < PI_TEMP_CRITICAL) {
-        const t = (piTemp - PI_TEMP_WARNING) / (PI_TEMP_CRITICAL - PI_TEMP_WARNING);
-        return { speedMult: 0.9 - t * 0.2, thrusterEff: 0.9 - t * 0.15, status: 'THERMAL WARNING', color: '#f80' };
-    } else {
-        const t = Math.min(1, (piTemp - PI_TEMP_CRITICAL) / (PI_TEMP_THROTTLE - PI_TEMP_CRITICAL));
-        return { speedMult: 0.7 - t * 0.3, thrusterEff: 0.75 - t * 0.25, status: 'THERMAL THROTTLE', color: '#f22' };
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════
-//  HUD UPDATES
-// ════════════════════════════════════════════════════════════════════
-
-function updateHUD(data) {
-    if (!data) return;
-
-    // Mission panel
-    const phaseEl = document.getElementById('phase-display');
-    phaseEl.textContent = data.mission.phase;
-    phaseEl.style.color =
-        data.mission.phase === 'SERVICING' ? '#ff0' :
-        data.mission.phase === 'MONITORING' ? '#0f0' :
-        data.mission.phase === 'CRITICAL' ? '#f00' : '#0af';
-
-    document.getElementById('status-msg').textContent = data.mission.status;
-    document.getElementById('sim-time').textContent = Math.floor(data.sim_time) + 's';
-    document.getElementById('svc-fuel').textContent = Math.floor(data.servicer.fuel) + ' kg';
-
-    // ── Pi Temperature / Servicer Thermal ──
-    const piTemp = data.pi_cpu_temp;
-    const thermal = computePiThermalEffect(piTemp);
-
-    const tempStr = piTemp >= 0 ? piTemp.toFixed(1) + ' C' : '-- C';
-    document.getElementById('pi-temp-value').textContent = tempStr;
-    document.getElementById('pi-temp-value').style.color = thermal.color;
-
-    const tempPct = piTemp >= 0 ? Math.min(100, (piTemp / PI_TEMP_THROTTLE) * 100) : 0;
-    const barEl = document.getElementById('pi-temp-bar');
-    barEl.style.width = tempPct + '%';
-    barEl.style.background = thermal.color;
-
-    const msgEl = document.getElementById('pi-throttle-msg');
-    msgEl.textContent = thermal.status;
-    msgEl.style.color = thermal.color;
-    msgEl.className = piTemp >= PI_TEMP_CRITICAL ? 'svc-throttle-warn' : '';
-
-    document.getElementById('svc-speed-mult').textContent = Math.floor(thermal.speedMult * 100) + '%';
-    document.getElementById('svc-speed-mult').style.color = thermal.color;
-    document.getElementById('svc-thruster-eff').textContent = Math.floor(thermal.thrusterEff * 100) + '%';
-    document.getElementById('svc-thruster-eff').style.color = thermal.color;
-
-    // ── Satellite list ──
-    let listHtml = '';
-    data.satellites.forEach(sat => {
-        const col = STATUS_COLORS[sat.status] || 0x555555;
-        const hex = '#' + col.toString(16).padStart(6, '0');
-        const sel = sat.id === selectedSatId ? ' selected' : '';
-        listHtml += `
-            <div class="sat-row${sel}" data-id="${sat.id}">
-                <div class="sat-dot" style="background:${hex}"></div>
-                <span class="sat-name">${sat.name}</span>
-                <span class="sat-stat" style="color:${hex}">${sat.status}</span>
-                <span class="sat-stat">${Math.floor(sat.gpu_temp)}C</span>
-                <span class="sat-stat">${sat.fuel.toFixed(1)}kg</span>
-            </div>`;
-    });
-    document.getElementById('sat-list').innerHTML = listHtml;
-    document.querySelectorAll('.sat-row').forEach(row => {
-        row.addEventListener('click', () => { selectedSatId = parseInt(row.dataset.id); });
-    });
-
-    // ── Detail panel ──
-    if (selectedSatId >= 0) {
-        const sat = data.satellites.find(s => s.id === selectedSatId);
-        if (sat) {
-            document.getElementById('hud-detail').style.display = 'block';
-            const tempPct2 = Math.min(100, (sat.gpu_temp / 100) * 100);
-            const tempCol = sat.gpu_temp > 90 ? '#f22' : sat.gpu_temp > 75 ? '#fa0' : '#0f8';
-
-            document.getElementById('detail-content').innerHTML = `
-                <div style="font-size:16px; color:#fff; margin-bottom:8px;">${sat.name}</div>
-                <div class="label">GPU Temperature</div>
-                <div class="value" style="color:${tempCol}">${sat.gpu_temp.toFixed(1)} C</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${tempPct2}%; background:${tempCol}"></div></div>
-                <div class="label">Fuel Remaining</div>
-                <div class="value">${sat.fuel.toFixed(1)} kg</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${(sat.fuel/10)*100}%; background:#0af"></div></div>
-                <div class="label">Radiator Efficiency</div>
-                <div class="value">${(sat.radiator_eff * 100).toFixed(0)}%</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${sat.radiator_eff*100}%; background:#a0f"></div></div>
-                <div class="label">Compute Load</div>
-                <div class="value">${(sat.compute_load * 100).toFixed(0)}%</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${sat.compute_load*100}%; background:#ff0"></div></div>
-                <div class="label">Power</div>
-                <div class="value">${Math.floor(sat.power_draw)}W / ${Math.floor(sat.solar_power)}W ${sat.in_eclipse ? '(ECLIPSE)' : ''}</div>
-                <div class="label">Status</div>
-                <div class="value" style="color:#${(STATUS_COLORS[sat.status]||0x555555).toString(16).padStart(6,'0')}">${sat.status}</div>
-                <div class="label">Urgency Score</div>
-                <div class="value">${sat.urgency.toFixed(1)}</div>`;
-        }
-    } else {
-        document.getElementById('hud-detail').style.display = 'none';
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════
-//  3D SCENE UPDATE
-// ════════════════════════════════════════════════════════════════════
-
-function updateScene(data) {
-    if (!data) return;
-
-    data.satellites.forEach((sat, i) => {
-        if (i >= satMeshes.length) return;
-        const mesh = satMeshes[i];
-        const glow = satGlows[i];
-
-        mesh.position.set(
-            sat.pos[0] * SCALE,
-            sat.pos[2] * SCALE,
-            sat.pos[1] * SCALE
-        );
-
-        mesh.rotation.y += 0.005;
-        mesh.rotation.x += 0.002;
-
-        const col = STATUS_COLORS[sat.status] || 0x555555;
-        mesh.material.color.setHex(col);
-        mesh.material.emissive.setHex(col).multiplyScalar(0.3);
-        glow.color.setHex(col);
-        glow.intensity = sat.status === 'CRITICAL' ? 0.8 : 0.3;
-
-        if (sat.status === 'CRITICAL') {
-            mesh.scale.setScalar(1.0 + 0.1 * Math.sin(Date.now() * 0.008));
-        } else {
-            mesh.scale.setScalar(1.0);
-        }
-        if (sat.id === selectedSatId) mesh.scale.multiplyScalar(1.25);
-
-        mesh.children.forEach(child => {
-            if (child.isMesh) {
-                child.material.emissive.setHex(sat.in_eclipse ? 0x000000 : 0x0a0a3a);
-            }
+    // Events
+    if(d.events&&d.events.length){
+        let eh='';d.events.slice(-12).reverse().forEach(e=>{
+            eh+=`<div class="evt"><span class="evt-time">${(e.t|0)}s</span>${e.msg}</div>`;
         });
+        document.getElementById('event-list').innerHTML=eh;
+    }
+
+    // Chart data
+    d.satellites.forEach(s=>addChartPt('t'+s.id,s.gpu_temp));
+    drawChart();
+}
+
+// ═══ 3D update ═════════════════════════════════════════════════════
+function updateScene(d){
+    if(!d)return;
+    d.satellites.forEach((s,i)=>{
+        if(i>=sM.length)return;const m=sM[i],g=sG[i];
+        m.position.set(s.pos[0]*S,s.pos[2]*S,s.pos[1]*S);
+        m.rotation.y+=.005;m.rotation.x+=.002;
+        const c=SC[s.status]||0x555555;m.material.color.setHex(c);m.material.emissive.setHex(c).multiplyScalar(.3);
+        g.color.setHex(c);g.intensity=s.status==='CRITICAL'?.8:.3;
+        if(s.status==='CRITICAL')m.scale.setScalar(1+.1*Math.sin(Date.now()*.008));else m.scale.setScalar(1);
+        if(s.id===selId)m.scale.multiplyScalar(1.25);
+        m.children.forEach(ch=>{if(ch.isMesh)ch.material.emissive.setHex(s.in_eclipse?0:0x0a0a3a)});
+        // Keep-out zone
+        if(i<koMeshes.length){
+            koMeshes[i].position.copy(m.position);
+            const svcDist=svc.position.distanceTo(m.position);
+            const show=svcDist<3&&d.servicer.target_id!==i;
+            koMeshes[i].material.opacity=show?Math.max(0,(.15-svcDist*.02)):0;
+        }
     });
 
     // Servicer
-    const svc = data.servicer;
-    svcMesh.position.set(svc.pos[0] * SCALE, svc.pos[2] * SCALE, svc.pos[1] * SCALE);
-
-    const svcSpeed = Math.sqrt(svc.vel[0]**2 + svc.vel[1]**2 + svc.vel[2]**2);
-    svcGlow.intensity = Math.min(2, svcSpeed * 0.1);
-
-    if (svc.target_id >= 0 && svc.target_id < satMeshes.length) {
-        svcMesh.lookAt(satMeshes[svc.target_id].position);
-    }
+    const sv=d.servicer;
+    svc.position.set(sv.pos[0]*S,sv.pos[2]*S,sv.pos[1]*S);
+    const svcSpd=Math.sqrt(sv.vel[0]**2+sv.vel[1]**2+sv.vel[2]**2);
+    svcGl.intensity=Math.min(2,svcSpd*.1);
+    if(sv.target_id>=0&&sv.target_id<sM.length)svc.lookAt(sM[sv.target_id].position);
 
     // Trail
-    const ti = trailIdx % TRAIL_LEN;
-    trailPositions[ti * 3]     = svcMesh.position.x;
-    trailPositions[ti * 3 + 1] = svcMesh.position.y;
-    trailPositions[ti * 3 + 2] = svcMesh.position.z;
-    trailIdx++;
-    trailGeo.attributes.position.needsUpdate = true;
+    const ti=tI%TL;tP[ti*3]=svc.position.x;tP[ti*3+1]=svc.position.y;tP[ti*3+2]=svc.position.z;tI++;
+    tGeo.attributes.position.needsUpdate=true;
 
-    // Rotate Earth
-    earth.rotation.y += 0.0005;
+    // Trajectory prediction arc
+    const traj=d.trajectory||[];
+    const tc=Math.min(traj.length,TMAX);
+    for(let i=0;i<tc;i++){
+        trajPosArr[i*3]=traj[i][0]*S;trajPosArr[i*3+1]=traj[i][2]*S;trajPosArr[i*3+2]=traj[i][1]*S;
+        const f=1-i/tc;
+        trajColArr[i*3]=.2+f*.3;trajColArr[i*3+1]=.5+f*.5;trajColArr[i*3+2]=1;
+    }
+    // Zero out unused
+    for(let i=tc;i<TMAX;i++){trajPosArr[i*3]=trajPosArr[i*3+1]=trajPosArr[i*3+2]=0;trajColArr[i*3]=trajColArr[i*3+1]=trajColArr[i*3+2]=0}
+    trajGeo.attributes.position.needsUpdate=true;
+    trajGeo.attributes.color.needsUpdate=true;
+    trajGeo.setDrawRange(0,tc);
+
+    // Docking PiP camera
+    const showPip=d.mission.phase==='RENDEZVOUS'||d.mission.phase==='DOCKING';
+    document.getElementById('pip-frame').style.display=showPip?'block':'none';
+    if(showPip&&sv.target_id>=0&&sv.target_id<sM.length){
+        dockCam.position.copy(svc.position);
+        dockCam.lookAt(sM[sv.target_id].position);
+        // Draw crosshair on PiP overlay
+        const oc=document.getElementById('pip-overlay');
+        oc.width=240;oc.height=160;
+        const ox=oc.getContext('2d');
+        ox.clearRect(0,0,240,160);
+        ox.strokeStyle='rgba(0,255,100,0.4)';ox.lineWidth=1;
+        ox.beginPath();ox.moveTo(120,60);ox.lineTo(120,100);ox.stroke();
+        ox.beginPath();ox.moveTo(100,80);ox.lineTo(140,80);ox.stroke();
+        ox.beginPath();ox.arc(120,80,20,0,Math.PI*2);ox.stroke();
+        // Range display
+        const range=svc.position.distanceTo(sM[sv.target_id].position)/S;
+        ox.fillStyle='#0f8';ox.font='10px monospace';
+        ox.fillText(`RNG: ${(range).toFixed(0)}m`,8,150);
+        ox.fillText(`SPD: ${svcSpd.toFixed(2)}m/s`,140,150);
+    }
+
+    earth.rotation.y+=.0005;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  CAMERA ANIMATION
-// ════════════════════════════════════════════════════════════════════
+// ═══ Camera animation ══════════════════════════════════════════════
+function animCam(p,t){camFrom={p:cam.position.clone(),t:ctrl.target.clone()};camTo={p:new THREE.Vector3(...p),t:new THREE.Vector3(...t)};camT=0;camAnim=true}
+function updCam(dt){if(!camAnim)return;camT+=dt/1.5;if(camT>=1){camT=1;camAnim=false}const e=camT<.5?2*camT*camT:1-(-2*camT+2)**2/2;cam.position.lerpVectors(camFrom.p,camTo.p,e);ctrl.target.lerpVectors(camFrom.t,camTo.t,e)}
 
-function animateCamera(toPos, toTarget, duration = 1.5) {
-    cameraFrom = {
-        pos: camera.position.clone(),
-        target: controls.target.clone()
-    };
-    cameraTo = {
-        pos: new THREE.Vector3(...toPos),
-        target: new THREE.Vector3(...toTarget)
-    };
-    cameraAnimT = 0;
-    cameraAnimating = true;
-}
-
-function updateCameraAnimation(dt) {
-    if (!cameraAnimating) return;
-    cameraAnimT += dt / 1.5;
-    if (cameraAnimT >= 1) {
-        cameraAnimT = 1;
-        cameraAnimating = false;
-    }
-    // Smooth ease-in-out
-    const t = cameraAnimT < 0.5
-        ? 2 * cameraAnimT * cameraAnimT
-        : 1 - Math.pow(-2 * cameraAnimT + 2, 2) / 2;
-
-    camera.position.lerpVectors(cameraFrom.pos, cameraTo.pos, t);
-    controls.target.lerpVectors(cameraFrom.target, cameraTo.target, t);
-}
-
-// ════════════════════════════════════════════════════════════════════
-//  RAYCASTING
-// ════════════════════════════════════════════════════════════════════
-
-const raycaster = new THREE.Raycaster();
-const mouse     = new THREE.Vector2();
-
-renderer.domElement.addEventListener('click', (event) => {
-    mouse.x =  (event.clientX / window.innerWidth)  * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(satMeshes, true);
-    if (hits.length > 0) {
-        let obj = hits[0].object;
-        while (obj && obj.userData.satId === undefined) obj = obj.parent;
-        if (obj && obj.userData.satId !== undefined) selectedSatId = obj.userData.satId;
-    } else {
-        selectedSatId = -1;
-    }
+// ═══ Raycasting ════════════════════════════════════════════════════
+const rc=new THREE.Raycaster(),ms=new THREE.Vector2();
+ren.domElement.addEventListener('click',e=>{
+    ms.x=(e.clientX/innerWidth)*2-1;ms.y=-(e.clientY/innerHeight)*2+1;
+    rc.setFromCamera(ms,cam);const h=rc.intersectObjects(sM,true);
+    if(h.length){let o=h[0].object;while(o&&o.userData.sid===undefined)o=o.parent;if(o)selId=o.userData.sid}else selId=-1;
+});
+ren.domElement.addEventListener('mousemove',e=>{
+    ms.x=(e.clientX/innerWidth)*2-1;ms.y=-(e.clientY/innerHeight)*2+1;
+    rc.setFromCamera(ms,cam);const h=rc.intersectObjects(sM,true);
+    const tip=document.getElementById('tooltip');
+    if(h.length&&D){let o=h[0].object;while(o&&o.userData.sid===undefined)o=o.parent;
+        if(o&&o.userData.sid!==undefined){const s=D.satellites[o.userData.sid];if(s){tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY+12)+'px';tip.innerHTML=`<b>${s.name}</b> [${s.status}]<br>Temp:${s.gpu_temp|0}C | Fuel:${s.fuel.toFixed(1)}kg`}}}else tip.style.display='none';
 });
 
-renderer.domElement.addEventListener('mousemove', (event) => {
-    mouse.x =  (event.clientX / window.innerWidth)  * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(satMeshes, true);
-    const tip = document.getElementById('tooltip');
-    if (hits.length > 0 && telemetryData) {
-        let obj = hits[0].object;
-        while (obj && obj.userData.satId === undefined) obj = obj.parent;
-        if (obj && obj.userData.satId !== undefined) {
-            const sat = telemetryData.satellites[obj.userData.satId];
-            if (sat) {
-                tip.style.display = 'block';
-                tip.style.left = (event.clientX + 14) + 'px';
-                tip.style.top  = (event.clientY + 14) + 'px';
-                tip.innerHTML  = `<b>${sat.name}</b> [${sat.status}]<br>Temp: ${sat.gpu_temp.toFixed(0)}C | Fuel: ${sat.fuel.toFixed(1)}kg`;
-            }
-        }
-    } else {
-        tip.style.display = 'none';
-    }
-});
+// ═══ Controls ══════════════════════════════════════════════════════
+document.getElementById('btn-pause').addEventListener('click',()=>{paused=!paused;document.getElementById('btn-pause').textContent=paused?'PLAY':'PAUSE'});
+[1,10,50].forEach(s=>{document.getElementById('btn-'+s+'x').addEventListener('click',()=>{spd=s;document.querySelectorAll('#hud-controls .btn').forEach(b=>b.classList.remove('on'));document.getElementById('btn-'+s+'x').classList.add('on')})});
+document.getElementById('btn-vf').addEventListener('click',()=>{view='f';animCam(VIEW_F.p,VIEW_F.t);document.getElementById('btn-vf').classList.add('on');document.getElementById('btn-vo').classList.remove('on');grid.visible=true});
+document.getElementById('btn-vo').addEventListener('click',()=>{view='o';animCam(VIEW_O.p,VIEW_O.t);document.getElementById('btn-vo').classList.add('on');document.getElementById('btn-vf').classList.remove('on');grid.visible=false});
+document.getElementById('btn-service').addEventListener('click',()=>{if(selId>=0)console.log('Dispatch to',selId)});
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight)});
 
-// ════════════════════════════════════════════════════════════════════
-//  CONTROLS
-// ════════════════════════════════════════════════════════════════════
-
-document.getElementById('btn-pause').addEventListener('click', () => {
-    simPaused = !simPaused;
-    document.getElementById('btn-pause').textContent = simPaused ? 'PLAY' : 'PAUSE';
-});
-
-[1, 10, 50].forEach(speed => {
-    document.getElementById(`btn-speed-${speed}x`).addEventListener('click', () => {
-        simSpeed = speed;
-        document.querySelectorAll('#hud-controls .ctrl-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById(`btn-speed-${speed}x`).classList.add('active');
-    });
-});
-
-// View toggle
-document.getElementById('btn-view-formation').addEventListener('click', () => {
-    currentView = 'formation';
-    animateCamera(VIEW_FORMATION.pos, VIEW_FORMATION.target);
-    document.getElementById('btn-view-formation').classList.add('active');
-    document.getElementById('btn-view-orbit').classList.remove('active');
-    gridHelper.visible = true;
-});
-
-document.getElementById('btn-view-orbit').addEventListener('click', () => {
-    currentView = 'orbital';
-    animateCamera(VIEW_ORBITAL.pos, VIEW_ORBITAL.target);
-    document.getElementById('btn-view-orbit').classList.add('active');
-    document.getElementById('btn-view-formation').classList.remove('active');
-    gridHelper.visible = false;
-});
-
-document.getElementById('btn-service').addEventListener('click', () => {
-    if (selectedSatId >= 0) {
-        console.log('Dispatch servicer to satellite', selectedSatId);
-    }
-});
-
-// ════════════════════════════════════════════════════════════════════
-//  RESIZE
-// ════════════════════════════════════════════════════════════════════
-
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// ════════════════════════════════════════════════════════════════════
-//  ANIMATION LOOP
-// ════════════════════════════════════════════════════════════════════
-
-const clock = new THREE.Clock();
-
-function animate() {
+// ═══ Render loop ═══════════════════════════════════════════════════
+const clk=new THREE.Clock();
+function animate(){
     requestAnimationFrame(animate);
-    const dt = clock.getDelta();
+    const dt=clk.getDelta();
+    updCam(dt);ctrl.update();
+    if(!live){if(!paused)demoT+=dt*spd;D=demoData(demoT)}
+    if(D){updateScene(D);updateHUD(D)}
 
-    updateCameraAnimation(dt);
-    controls.update();
+    // Main render
+    ren.setViewport(0,0,innerWidth,innerHeight);
+    ren.setScissor(0,0,innerWidth,innerHeight);
+    ren.setScissorTest(false);
+    ren.clear();
+    ren.render(scene,cam);
 
-    if (!useLiveData) {
-        if (!simPaused) demoTime += dt * simSpeed;
-        telemetryData = generateDemoData(demoTime);
+    // PiP docking camera
+    const pipEl=document.getElementById('pip-frame');
+    if(pipEl.style.display==='block'){
+        const pw=240,ph=160;
+        const px=innerWidth-pw-14;
+        const py=innerHeight-270-ph;
+        ren.setViewport(px,py,pw,ph);
+        ren.setScissor(px,py,pw,ph);
+        ren.setScissorTest(true);
+        ren.render(scene,dockCam);
+        ren.setScissorTest(false);
     }
-
-    if (telemetryData) {
-        updateScene(telemetryData);
-        updateHUD(telemetryData);
-    }
-
-    renderer.render(scene, camera);
 }
-
 animate();
-
 </script>
 </body>
 </html>

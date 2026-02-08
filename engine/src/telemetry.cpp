@@ -16,23 +16,22 @@ std::string Telemetry::build_telemetry(
 
     j << "{\n";
 
-    // Simulation time
     j << "  \"sim_time\": " << sim_time << ",\n";
     j << "  \"pi_cpu_temp\": " << pi_cpu_temp << ",\n";
 
-    // Mission state
+    // ── Mission state ──
     j << "  \"mission\": {\n";
-    j << "    \"phase\": \""     << phase_to_string(mission.get_phase()) << "\",\n";
-    j << "    \"target_id\": "   << mission.get_target_id() << ",\n";
+    j << "    \"phase\": \""      << phase_to_string(mission.get_phase()) << "\",\n";
+    j << "    \"target_id\": "    << mission.get_target_id() << ",\n";
     j << "    \"mission_time\": " << mission.get_mission_time() << ",\n";
     j << "    \"phase_progress\": " << mission.get_phase_progress() << ",\n";
-    j << "    \"status\": \""    << escape_json(mission.get_status_message()) << "\"\n";
+    j << "    \"status\": \""     << escape_json(mission.get_status_message()) << "\"\n";
     j << "  },\n";
 
-    // Servicer
+    // ── Servicer ──
     j << "  \"servicer\": " << servicer_to_json(constellation.get_servicer()) << ",\n";
 
-    // Satellites array
+    // ── Satellites ──
     j << "  \"satellites\": [\n";
     const auto& sats = constellation.get_satellites();
     for (size_t i = 0; i < sats.size(); i++) {
@@ -40,7 +39,46 @@ std::string Telemetry::build_telemetry(
         if (i < sats.size() - 1) j << ",";
         j << "\n";
     }
-    j << "  ]\n";
+    j << "  ],\n";
+
+    // ── Trajectory prediction ──
+    j << "  \"trajectory\": [";
+    int tc = mission.get_trajectory_count();
+    const Vec3* tpts = mission.get_trajectory();
+    for (int i = 0; i < tc; i++) {
+        j << vec3_to_json(tpts[i]);
+        if (i < tc - 1) j << ",";
+    }
+    j << "],\n";
+
+    // ── Decision reasoning ──
+    j << "  \"decision\": {\n";
+    j << "    \"reason\": \"" << escape_json(mission.get_decision_reason()) << "\",\n";
+    j << "    \"scores\": [";
+    int sc = mission.get_score_count();
+    const SatelliteScore* scores = mission.get_scores();
+    for (int i = 0; i < sc; i++) {
+        const auto& s = scores[i];
+        j << "{\"id\":" << s.id
+          << ",\"temp\":" << s.temp_score
+          << ",\"fuel\":" << s.fuel_score
+          << ",\"rad\":"  << s.rad_score
+          << ",\"time\":" << s.time_score
+          << ",\"total\":" << s.total << "}";
+        if (i < sc - 1) j << ",";
+    }
+    j << "]\n";
+    j << "  },\n";
+
+    // ── Event log ──
+    j << "  \"events\": [";
+    const auto& evts = mission.get_events();
+    for (size_t i = 0; i < evts.size(); i++) {
+        j << "{\"t\":" << evts[i].time
+          << ",\"msg\":\"" << escape_json(evts[i].message) << "\"}";
+        if (i < evts.size() - 1) j << ",";
+    }
+    j << "]\n";
 
     j << "}\n";
     return j.str();
@@ -56,12 +94,11 @@ void Telemetry::write_to_file(
     }
 }
 
-// ─── Internal serializers ──────────────────────────────────────────
+// ─── Serializers ───────────────────────────────────────────────────
 
 std::string Telemetry::satellite_to_json(const ComputeSatellite& sat) {
     std::ostringstream j;
     j << std::fixed << std::setprecision(4);
-
     j << "{";
     j << "\"id\":"           << sat.id << ",";
     j << "\"name\":\""       << escape_json(sat.name) << "\",";
@@ -78,14 +115,12 @@ std::string Telemetry::satellite_to_json(const ComputeSatellite& sat) {
     j << "\"status\":\""     << status_to_string(sat.status) << "\",";
     j << "\"urgency\":"      << sat.urgency_score();
     j << "}";
-
     return j.str();
 }
 
 std::string Telemetry::servicer_to_json(const Servicer& svc) {
     std::ostringstream j;
     j << std::fixed << std::setprecision(4);
-
     j << "{";
     j << "\"pos\":"       << vec3_to_json(svc.position) << ",";
     j << "\"vel\":"       << vec3_to_json(svc.velocity) << ",";
@@ -93,7 +128,6 @@ std::string Telemetry::servicer_to_json(const Servicer& svc) {
     j << "\"fuel\":"      << svc.fuel_kg << ",";
     j << "\"target_id\":" << svc.target_id;
     j << "}";
-
     return j.str();
 }
 
