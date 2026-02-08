@@ -59,9 +59,9 @@
 
         /* Satellite list (left side) */
         #hud-satellites {
-            top: 160px; left: 16px;
+            top: 200px; left: 16px;
             min-width: 360px;
-            max-height: calc(100vh - 200px);
+            max-height: calc(100vh - 240px);
             overflow-y: auto;
         }
         .sat-row {
@@ -102,6 +102,31 @@
             border-radius: 3px;
             transition: width 0.3s;
         }
+
+        /* Servicer panel (bottom-right) */
+        #hud-servicer {
+            bottom: 70px; right: 16px;
+            min-width: 250px;
+        }
+        .svc-temp-bar {
+            width: 100%; height: 10px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 5px;
+            margin: 4px 0 6px;
+            position: relative;
+            overflow: hidden;
+        }
+        .svc-temp-fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.3s, background 0.3s;
+        }
+        .svc-throttle-warn {
+            color: #f80;
+            font-size: 10px;
+            animation: blink 0.8s infinite;
+        }
+        @keyframes blink { 50% { opacity: 0.3; } }
 
         /* Controls (bottom-center) */
         #hud-controls {
@@ -178,10 +203,7 @@
     <div style="margin-top:8px; font-size:11px; color:#666;">
         <span>Sim Time: <span id="sim-time" style="color:#aaa">0s</span></span>
         &nbsp;|&nbsp;
-        <span>Pi CPU: <span id="pi-temp" style="color:#aaa">N/A</span></span>
-    </div>
-    <div style="margin-top:4px; font-size:11px; color:#666;">
-        Servicer Fuel: <span id="svc-fuel" style="color:#aaa">50 kg</span>
+        <span>Servicer Fuel: <span id="svc-fuel" style="color:#aaa">50 kg</span></span>
     </div>
 </div>
 
@@ -200,14 +222,35 @@
     </button>
 </div>
 
+<!-- HUD: Servicer / Pi Thermal -->
+<div class="hud" id="hud-servicer">
+    <h2>Servicer Onboard Computer</h2>
+    <div style="font-size:10px; color:#666; margin-bottom:6px;">
+        Hardware: Raspberry Pi Zero 2 W (live)
+    </div>
+    <div class="label" style="color:#888; font-size:10px;">CPU TEMPERATURE</div>
+    <div id="pi-temp-value" style="font-size:20px; color:#0f8;">-- C</div>
+    <div class="svc-temp-bar">
+        <div class="svc-temp-fill" id="pi-temp-bar" style="width:0%; background:#0f8;"></div>
+    </div>
+    <div id="pi-throttle-msg" style="font-size:10px; color:#666;">System nominal</div>
+    <div style="margin-top:8px; font-size:10px; color:#555; border-top:1px solid rgba(255,255,255,0.05); padding-top:6px;">
+        <div>Approach Speed: <span id="svc-speed-mult" style="color:#aaa">100%</span></div>
+        <div>Thruster Eff: <span id="svc-thruster-eff" style="color:#aaa">100%</span></div>
+    </div>
+</div>
+
 <!-- Controls -->
 <div class="hud" id="hud-controls">
     <button class="ctrl-btn" id="btn-pause">PAUSE</button>
     <button class="ctrl-btn" id="btn-speed-1x">1x</button>
     <button class="ctrl-btn active" id="btn-speed-10x">10x</button>
     <button class="ctrl-btn" id="btn-speed-50x">50x</button>
+    <span style="color:#444; margin:0 6px;">|</span>
+    <button class="ctrl-btn active" id="btn-view-formation">FORMATION</button>
+    <button class="ctrl-btn" id="btn-view-orbit">ORBITAL</button>
     <span style="color:#555; font-size:10px; margin-left:8px;">
-        Click satellite to inspect | Scroll to zoom
+        Click satellite to inspect | Scroll to zoom | Drag to orbit
     </span>
 </div>
 
@@ -235,10 +278,20 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 //  CONFIGURATION
 // ════════════════════════════════════════════════════════════════════
 
-const SCALE         = 1 / 1000;   // 1 Three.js unit = 1 km
+const SCALE         = 1 / 1000;
 const NUM_SATS      = 8;
-const POLL_INTERVAL = 200;        // ms between telemetry fetches
+const POLL_INTERVAL = 200;
 const TELEMETRY_URL = 'telemetry.json';
+
+// Camera presets
+const VIEW_FORMATION = { pos: [8, 5, 10],  target: [0, 0, 0] };
+const VIEW_ORBITAL   = { pos: [0, 35, 50], target: [0, -12, 0] };
+
+// Pi thermal thresholds (same as in C++ config)
+const PI_TEMP_NOMINAL  = 55;
+const PI_TEMP_WARNING  = 65;
+const PI_TEMP_CRITICAL = 75;
+const PI_TEMP_THROTTLE = 80;
 
 // ════════════════════════════════════════════════════════════════════
 //  SCENE SETUP
@@ -253,25 +306,30 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-camera.position.set(8, 6, 12);
+camera.position.set(8, 5, 10);
 camera.lookAt(0, 0, 0);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance   = 1;
-controls.maxDistance   = 100;
+controls.maxDistance   = 200;
 
 // ── Lighting ──
-scene.add(new THREE.AmbientLight(0x334466, 0.6));
-const sunLight = new THREE.DirectionalLight(0xffeedd, 1.8);
+scene.add(new THREE.AmbientLight(0x334466, 0.5));
+const sunLight = new THREE.DirectionalLight(0xffeedd, 2.0);
 sunLight.position.set(50, 30, 40);
 scene.add(sunLight);
+
+// Subtle fill light from below (Earth albedo reflection)
+const fillLight = new THREE.DirectionalLight(0x2244aa, 0.3);
+fillLight.position.set(0, -30, 0);
+scene.add(fillLight);
 
 // ── Starfield ──
 const starGeo = new THREE.BufferGeometry();
 const starVerts = [];
-for (let i = 0; i < 4000; i++) {
+for (let i = 0; i < 6000; i++) {
     starVerts.push(
         (Math.random() - 0.5) * 2000,
         (Math.random() - 0.5) * 2000,
@@ -279,35 +337,178 @@ for (let i = 0; i < 4000; i++) {
     );
 }
 starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.4 })));
 
-// ── Earth (decorative, below the formation) ──
-const earthGeo  = new THREE.SphereGeometry(3, 48, 48);
-const earthMat  = new THREE.MeshPhongMaterial({
-    color: 0x2244aa,
-    emissive: 0x112244,
-    specular: 0x444466,
-    shininess: 15,
-    transparent: true,
-    opacity: 0.4
+// ════════════════════════════════════════════════════════════════════
+//  3D EARTH — Procedural texture with continents
+// ════════════════════════════════════════════════════════════════════
+
+function createEarthTexture(size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size / 2;
+    const ctx = canvas.getContext('2d');
+
+    // Ocean base
+    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, '#0a1a3a');
+    grad.addColorStop(0.15, '#0d3060');
+    grad.addColorStop(0.5, '#104080');
+    grad.addColorStop(0.85, '#0d3060');
+    grad.addColorStop(1, '#0a1a3a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Simple seeded random for repeatable continents
+    let seed = 42;
+    function rand() { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; }
+
+    // Generate continent-like blobs
+    const continents = [
+        // Roughly: North America, South America, Europe/Africa, Asia, Australia
+        { cx: 0.22, cy: 0.35, rx: 0.08, ry: 0.12 },
+        { cx: 0.25, cy: 0.6,  rx: 0.04, ry: 0.10 },
+        { cx: 0.50, cy: 0.35, rx: 0.04, ry: 0.15 },
+        { cx: 0.52, cy: 0.60, rx: 0.05, ry: 0.08 },
+        { cx: 0.65, cy: 0.35, rx: 0.12, ry: 0.10 },
+        { cx: 0.72, cy: 0.30, rx: 0.08, ry: 0.06 },
+        { cx: 0.80, cy: 0.62, rx: 0.04, ry: 0.04 },
+    ];
+
+    continents.forEach(c => {
+        // Draw several overlapping ellipses for organic shapes
+        for (let k = 0; k < 8; k++) {
+            const ox = (rand() - 0.5) * c.rx * 1.5;
+            const oy = (rand() - 0.5) * c.ry * 1.0;
+            const srx = c.rx * (0.4 + rand() * 0.8);
+            const sry = c.ry * (0.4 + rand() * 0.8);
+
+            const px = (c.cx + ox) * canvas.width;
+            const py = (c.cy + oy) * canvas.height;
+            const prx = srx * canvas.width;
+            const pry = sry * canvas.height;
+
+            ctx.beginPath();
+            ctx.ellipse(px, py, prx, pry, rand() * Math.PI, 0, Math.PI * 2);
+            // Green/brown land colors
+            const g = Math.floor(80 + rand() * 60);
+            const r = Math.floor(40 + rand() * 50);
+            const b = Math.floor(20 + rand() * 30);
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fill();
+        }
+    });
+
+    // Polar ice caps
+    const icGrad1 = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.08);
+    icGrad1.addColorStop(0, 'rgba(220,230,240,0.9)');
+    icGrad1.addColorStop(1, 'rgba(220,230,240,0)');
+    ctx.fillStyle = icGrad1;
+    ctx.fillRect(0, 0, canvas.width, canvas.height * 0.08);
+
+    const icGrad2 = ctx.createLinearGradient(0, canvas.height * 0.92, 0, canvas.height);
+    icGrad2.addColorStop(0, 'rgba(220,230,240,0)');
+    icGrad2.addColorStop(1, 'rgba(220,230,240,0.9)');
+    ctx.fillStyle = icGrad2;
+    ctx.fillRect(0, canvas.height * 0.92, canvas.width, canvas.height * 0.08);
+
+    // Cloud wisps
+    ctx.globalAlpha = 0.12;
+    for (let i = 0; i < 30; i++) {
+        const cx2 = rand() * canvas.width;
+        const cy2 = rand() * canvas.height;
+        const cr  = 20 + rand() * 80;
+        const cg  = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, cr);
+        cg.addColorStop(0, 'rgba(255,255,255,0.5)');
+        cg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = cg;
+        ctx.fillRect(cx2 - cr, cy2 - cr, cr * 2, cr * 2);
+    }
+    ctx.globalAlpha = 1.0;
+
+    return new THREE.CanvasTexture(canvas);
+}
+
+// Earth sphere
+const EARTH_RADIUS = 12;
+const earthTex     = createEarthTexture(1024);
+earthTex.wrapS     = THREE.RepeatWrapping;
+const earthGeo     = new THREE.SphereGeometry(EARTH_RADIUS, 64, 48);
+const earthMat     = new THREE.MeshPhongMaterial({
+    map: earthTex,
+    specular: 0x222244,
+    shininess: 20,
+    emissive: 0x050a18,
+    emissiveIntensity: 0.3,
 });
 const earth = new THREE.Mesh(earthGeo, earthMat);
-earth.position.set(0, -18, 0);
+earth.position.set(0, -EARTH_RADIUS - 12, 0);
+earth.rotation.y = -0.5;  // initial rotation
 scene.add(earth);
 
-// Atmosphere glow
-const glowGeo = new THREE.SphereGeometry(3.15, 48, 48);
-const glowMat = new THREE.MeshBasicMaterial({
-    color: 0x4488ff,
-    transparent: true,
-    opacity: 0.08,
-    side: THREE.BackSide
-});
-scene.add(new THREE.Mesh(glowGeo, glowMat)).position.copy(earth.position);
+// Atmosphere glow (multiple layers)
+for (let i = 1; i <= 3; i++) {
+    const atmGeo = new THREE.SphereGeometry(EARTH_RADIUS + i * 0.15, 48, 48);
+    const atmMat = new THREE.MeshBasicMaterial({
+        color: 0x4488ff,
+        transparent: true,
+        opacity: 0.04 / i,
+        side: THREE.BackSide,
+        depthWrite: false,
+    });
+    const atm = new THREE.Mesh(atmGeo, atmMat);
+    atm.position.copy(earth.position);
+    scene.add(atm);
+}
 
-// ── Grid reference (orbital plane) ──
+// Thin bright atmosphere rim (visible from the side)
+const rimGeo = new THREE.SphereGeometry(EARTH_RADIUS + 0.08, 64, 48);
+const rimMat = new THREE.ShaderMaterial({
+    vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        void main() {
+            vNormal = normalize(normalMatrix * normal);
+            vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+            gl_Position = projectionMatrix * vec4(vPosition, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        void main() {
+            vec3 viewDir = normalize(-vPosition);
+            float rim = 1.0 - max(dot(viewDir, vNormal), 0.0);
+            rim = pow(rim, 3.0);
+            gl_FragColor = vec4(0.3, 0.6, 1.0, rim * 0.6);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
+});
+const rimMesh = new THREE.Mesh(rimGeo, rimMat);
+rimMesh.position.copy(earth.position);
+scene.add(rimMesh);
+
+// Orbital ring (where the constellation sits)
+const orbitRingGeo = new THREE.TorusGeometry(14, 0.02, 8, 128);
+const orbitRingMat = new THREE.MeshBasicMaterial({
+    color: 0x0a4488,
+    transparent: true,
+    opacity: 0.3,
+});
+const orbitRing = new THREE.Mesh(orbitRingGeo, orbitRingMat);
+orbitRing.position.copy(earth.position);
+orbitRing.position.y += EARTH_RADIUS + 12;  // at constellation altitude
+orbitRing.rotation.x = Math.PI / 2;
+scene.add(orbitRing);
+
+// ── Grid reference (formation plane) ──
 const gridHelper = new THREE.GridHelper(20, 20, 0x0a2a4a, 0x051525);
 gridHelper.position.y = -0.5;
+gridHelper.material.transparent = true;
+gridHelper.material.opacity = 0.3;
 scene.add(gridHelper);
 
 // ════════════════════════════════════════════════════════════════════
@@ -321,14 +522,12 @@ const STATUS_COLORS = {
     OFFLINE:  0x555555
 };
 
-// Satellite meshes
 const satMeshes = [];
 const satGlows  = [];
 const satGroup  = new THREE.Group();
 scene.add(satGroup);
 
 for (let i = 0; i < NUM_SATS; i++) {
-    // Body
     const geo  = new THREE.OctahedronGeometry(0.15, 0);
     const mat  = new THREE.MeshPhongMaterial({ color: 0x00ff88, emissive: 0x004422 });
     const mesh = new THREE.Mesh(geo, mat);
@@ -336,30 +535,25 @@ for (let i = 0; i < NUM_SATS; i++) {
     satGroup.add(mesh);
     satMeshes.push(mesh);
 
-    // Solar panels (flat boxes on each side)
+    // Solar panels
     const panelGeo = new THREE.BoxGeometry(0.5, 0.02, 0.12);
     const panelMat = new THREE.MeshPhongMaterial({ color: 0x1a1a5a, emissive: 0x0a0a3a });
-    const panelL   = new THREE.Mesh(panelGeo, panelMat);
-    const panelR   = new THREE.Mesh(panelGeo, panelMat);
-    panelL.position.x = -0.3;
-    panelR.position.x =  0.3;
-    mesh.add(panelL);
-    mesh.add(panelR);
+    mesh.add(new THREE.Mesh(panelGeo, panelMat)).position.x = -0.3;
+    mesh.add(new THREE.Mesh(panelGeo, panelMat.clone())).position.x = 0.3;
 
-    // Health aura (point light)
+    // Health aura
     const glow = new THREE.PointLight(0x00ff88, 0.3, 2);
     mesh.add(glow);
     satGlows.push(glow);
 }
 
-// Servicer mesh (distinct shape — yellow)
+// Servicer mesh (yellow cone)
 const svcGeo  = new THREE.ConeGeometry(0.12, 0.35, 6);
 const svcMat  = new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x554400 });
 const svcMesh = new THREE.Mesh(svcGeo, svcMat);
-svcMesh.rotation.x = Math.PI;  // nose forward
+svcMesh.rotation.x = Math.PI;
 scene.add(svcMesh);
 
-// Servicer engine glow
 const svcGlow = new THREE.PointLight(0xff6600, 0, 1.5);
 svcMesh.add(svcGlow);
 
@@ -383,21 +577,27 @@ let useLiveData    = false;
 let simPaused      = false;
 let simSpeed       = 10;
 let demoTime       = 0;
+let currentView    = 'formation';  // 'formation' or 'orbital'
+
+// Camera animation
+let cameraAnimating = false;
+let cameraFrom      = {};
+let cameraTo        = {};
+let cameraAnimT     = 0;
 
 // ════════════════════════════════════════════════════════════════════
-//  DEMO SIMULATION (runs when C++ engine is not connected)
+//  DEMO SIMULATION
 // ════════════════════════════════════════════════════════════════════
 
 function generateDemoData(t) {
     const sats = [];
     for (let i = 0; i < NUM_SATS; i++) {
         const angle  = (2 * Math.PI * i) / NUM_SATS;
-        const radius = 5000;  // meters
+        const radius = 5000;
         const px     = radius * Math.cos(angle) * 0.3;
         const py     = radius * Math.sin(angle);
         const pz     = radius * Math.cos(angle + Math.PI / 4) * 0.2;
 
-        // Simulate degradation
         const baseTemp   = 50 + i * 4 + Math.sin(t * 0.02 + i) * 8;
         const tempSpike  = (i === 5 && t > 30) ? Math.min((t - 30) * 0.5, 35) : 0;
         const gpuTemp    = baseTemp + tempSpike;
@@ -414,33 +614,20 @@ function generateDemoData(t) {
         if (fuel < 3) urgency += 50 * (1 - fuel / 3);
 
         sats.push({
-            id: i,
-            name: 'COMPUTE-' + i,
-            pos: [px, py, pz],
-            vel: [0, 0, 0],
-            att: [1, 0, 0, 0],
-            gpu_temp: gpuTemp,
-            radiator_eff: radEff,
-            fuel: fuel,
-            compute_load: load,
-            solar_power: 4083,
-            power_draw: 200 + load * 2400,
+            id: i, name: 'COMPUTE-' + i,
+            pos: [px, py, pz], vel: [0, 0, 0], att: [1, 0, 0, 0],
+            gpu_temp: gpuTemp, radiator_eff: radEff, fuel, compute_load: load,
+            solar_power: 4083, power_draw: 200 + load * 2400,
             in_eclipse: Math.sin(t * 0.05 + i * 0.8) > 0.7,
-            status: status,
-            urgency: urgency
+            status, urgency
         });
     }
 
-    // Servicer - find most urgent and approach it
-    let targetId = -1;
-    let maxUrg   = 5;
+    let targetId = -1, maxUrg = 5;
     sats.forEach(s => { if (s.urgency > maxUrg) { maxUrg = s.urgency; targetId = s.id; } });
 
     const svcPark = [0, -10000, 0];
-    let svcPos    = svcPark;
-    let phase     = 'MONITORING';
-    let statusMsg = 'Monitoring constellation health...';
-    let progress  = 0;
+    let svcPos = svcPark, phase = 'MONITORING', statusMsg = 'Monitoring constellation health...', progress = 0;
 
     if (targetId >= 0) {
         const target   = sats[targetId];
@@ -450,15 +637,15 @@ function generateDemoData(t) {
             svcPark[1] + (target.pos[1] - svcPark[1]) * approach,
             svcPark[2] + (target.pos[2] - svcPark[2]) * approach
         ];
-        if (approach < 0.3)      { phase = 'TRANSIT';     statusMsg = `Transit to ${target.name}`; progress = approach / 0.3; }
-        else if (approach < 0.8) { phase = 'RENDEZVOUS';  statusMsg = 'Proximity operations...'; progress = (approach - 0.3) / 0.5; }
-        else if (approach < 0.95){ phase = 'DOCKING';     statusMsg = 'Final approach...'; progress = (approach - 0.8) / 0.15; }
-        else                     { phase = 'SERVICING';   statusMsg = 'Servicing in progress...'; progress = Math.min(1, (t - 58) / 20); }
+        if      (approach < 0.3)  { phase = 'TRANSIT';    statusMsg = `Transit to ${target.name}`; }
+        else if (approach < 0.8)  { phase = 'RENDEZVOUS'; statusMsg = 'Proximity operations...'; }
+        else if (approach < 0.95) { phase = 'DOCKING';    statusMsg = 'Final approach...'; }
+        else                      { phase = 'SERVICING';  statusMsg = 'Servicing in progress...'; }
     }
 
     return {
         sim_time: t,
-        pi_cpu_temp: -1,
+        pi_cpu_temp: 42 + Math.sin(t * 0.1) * 5,  // simulated Pi temp for demo
         mission: { phase, target_id: targetId, mission_time: t, phase_progress: progress, status: statusMsg },
         servicer: { pos: svcPos, vel: [0, 0, 0], att: [1, 0, 0, 0], fuel: 50 - t * 0.05, target_id: targetId },
         satellites: sats
@@ -481,15 +668,34 @@ async function fetchTelemetry() {
             }
         }
     } catch {
-        // Not connected — fall back to demo mode
         useLiveData = false;
         document.getElementById('conn-status').textContent = 'DEMO MODE';
         document.getElementById('conn-status').className = '';
     }
 }
-
 setInterval(fetchTelemetry, POLL_INTERVAL);
 fetchTelemetry();
+
+// ════════════════════════════════════════════════════════════════════
+//  Pi TEMPERATURE → SERVICER PERFORMANCE
+// ════════════════════════════════════════════════════════════════════
+
+function computePiThermalEffect(piTemp) {
+    if (piTemp < 0) return { speedMult: 1.0, thrusterEff: 1.0, status: 'No data', color: '#666' };
+
+    if (piTemp < PI_TEMP_NOMINAL) {
+        return { speedMult: 1.0, thrusterEff: 1.0, status: 'System nominal', color: '#0f8' };
+    } else if (piTemp < PI_TEMP_WARNING) {
+        const t = (piTemp - PI_TEMP_NOMINAL) / (PI_TEMP_WARNING - PI_TEMP_NOMINAL);
+        return { speedMult: 1.0 - t * 0.1, thrusterEff: 1.0, status: 'Warming up', color: '#ff0' };
+    } else if (piTemp < PI_TEMP_CRITICAL) {
+        const t = (piTemp - PI_TEMP_WARNING) / (PI_TEMP_CRITICAL - PI_TEMP_WARNING);
+        return { speedMult: 0.9 - t * 0.2, thrusterEff: 0.9 - t * 0.15, status: 'THERMAL WARNING', color: '#f80' };
+    } else {
+        const t = Math.min(1, (piTemp - PI_TEMP_CRITICAL) / (PI_TEMP_THROTTLE - PI_TEMP_CRITICAL));
+        return { speedMult: 0.7 - t * 0.3, thrusterEff: 0.75 - t * 0.25, status: 'THERMAL THROTTLE', color: '#f22' };
+    }
+}
 
 // ════════════════════════════════════════════════════════════════════
 //  HUD UPDATES
@@ -508,11 +714,32 @@ function updateHUD(data) {
 
     document.getElementById('status-msg').textContent = data.mission.status;
     document.getElementById('sim-time').textContent = Math.floor(data.sim_time) + 's';
-    document.getElementById('pi-temp').textContent =
-        data.pi_cpu_temp >= 0 ? Math.floor(data.pi_cpu_temp) + ' C' : 'N/A';
     document.getElementById('svc-fuel').textContent = Math.floor(data.servicer.fuel) + ' kg';
 
-    // Satellite list
+    // ── Pi Temperature / Servicer Thermal ──
+    const piTemp = data.pi_cpu_temp;
+    const thermal = computePiThermalEffect(piTemp);
+
+    const tempStr = piTemp >= 0 ? piTemp.toFixed(1) + ' C' : '-- C';
+    document.getElementById('pi-temp-value').textContent = tempStr;
+    document.getElementById('pi-temp-value').style.color = thermal.color;
+
+    const tempPct = piTemp >= 0 ? Math.min(100, (piTemp / PI_TEMP_THROTTLE) * 100) : 0;
+    const barEl = document.getElementById('pi-temp-bar');
+    barEl.style.width = tempPct + '%';
+    barEl.style.background = thermal.color;
+
+    const msgEl = document.getElementById('pi-throttle-msg');
+    msgEl.textContent = thermal.status;
+    msgEl.style.color = thermal.color;
+    msgEl.className = piTemp >= PI_TEMP_CRITICAL ? 'svc-throttle-warn' : '';
+
+    document.getElementById('svc-speed-mult').textContent = Math.floor(thermal.speedMult * 100) + '%';
+    document.getElementById('svc-speed-mult').style.color = thermal.color;
+    document.getElementById('svc-thruster-eff').textContent = Math.floor(thermal.thrusterEff * 100) + '%';
+    document.getElementById('svc-thruster-eff').style.color = thermal.color;
+
+    // ── Satellite list ──
     let listHtml = '';
     data.satellites.forEach(sat => {
         const col = STATUS_COLORS[sat.status] || 0x555555;
@@ -528,54 +755,38 @@ function updateHUD(data) {
             </div>`;
     });
     document.getElementById('sat-list').innerHTML = listHtml;
-
-    // Attach click handlers
     document.querySelectorAll('.sat-row').forEach(row => {
-        row.addEventListener('click', () => {
-            selectedSatId = parseInt(row.dataset.id);
-        });
+        row.addEventListener('click', () => { selectedSatId = parseInt(row.dataset.id); });
     });
 
-    // Detail panel
+    // ── Detail panel ──
     if (selectedSatId >= 0) {
         const sat = data.satellites.find(s => s.id === selectedSatId);
         if (sat) {
-            const dp = document.getElementById('hud-detail');
-            dp.style.display = 'block';
-
-            const tempPct = Math.min(100, (sat.gpu_temp / 100) * 100);
+            document.getElementById('hud-detail').style.display = 'block';
+            const tempPct2 = Math.min(100, (sat.gpu_temp / 100) * 100);
             const tempCol = sat.gpu_temp > 90 ? '#f22' : sat.gpu_temp > 75 ? '#fa0' : '#0f8';
-            const fuelPct = (sat.fuel / 10) * 100;
-            const radPct  = sat.radiator_eff * 100;
-            const loadPct = sat.compute_load * 100;
 
             document.getElementById('detail-content').innerHTML = `
                 <div style="font-size:16px; color:#fff; margin-bottom:8px;">${sat.name}</div>
                 <div class="label">GPU Temperature</div>
                 <div class="value" style="color:${tempCol}">${sat.gpu_temp.toFixed(1)} C</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${tempPct}%; background:${tempCol}"></div></div>
-
+                <div class="bar-outer"><div class="bar-inner" style="width:${tempPct2}%; background:${tempCol}"></div></div>
                 <div class="label">Fuel Remaining</div>
                 <div class="value">${sat.fuel.toFixed(1)} kg</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${fuelPct}%; background:#0af"></div></div>
-
+                <div class="bar-outer"><div class="bar-inner" style="width:${(sat.fuel/10)*100}%; background:#0af"></div></div>
                 <div class="label">Radiator Efficiency</div>
                 <div class="value">${(sat.radiator_eff * 100).toFixed(0)}%</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${radPct}%; background:#a0f"></div></div>
-
+                <div class="bar-outer"><div class="bar-inner" style="width:${sat.radiator_eff*100}%; background:#a0f"></div></div>
                 <div class="label">Compute Load</div>
                 <div class="value">${(sat.compute_load * 100).toFixed(0)}%</div>
-                <div class="bar-outer"><div class="bar-inner" style="width:${loadPct}%; background:#ff0"></div></div>
-
+                <div class="bar-outer"><div class="bar-inner" style="width:${sat.compute_load*100}%; background:#ff0"></div></div>
                 <div class="label">Power</div>
                 <div class="value">${Math.floor(sat.power_draw)}W / ${Math.floor(sat.solar_power)}W ${sat.in_eclipse ? '(ECLIPSE)' : ''}</div>
-
                 <div class="label">Status</div>
-                <div class="value" style="color:#${(STATUS_COLORS[sat.status] || 0x555555).toString(16).padStart(6,'0')}">${sat.status}</div>
-
+                <div class="value" style="color:#${(STATUS_COLORS[sat.status]||0x555555).toString(16).padStart(6,'0')}">${sat.status}</div>
                 <div class="label">Urgency Score</div>
-                <div class="value">${sat.urgency.toFixed(1)}</div>
-            `;
+                <div class="value">${sat.urgency.toFixed(1)}</div>`;
         }
     } else {
         document.getElementById('hud-detail').style.display = 'none';
@@ -589,7 +800,6 @@ function updateHUD(data) {
 function updateScene(data) {
     if (!data) return;
 
-    // Update satellite positions and colors
     data.satellites.forEach((sat, i) => {
         if (i >= satMeshes.length) return;
         const mesh = satMeshes[i];
@@ -597,35 +807,26 @@ function updateScene(data) {
 
         mesh.position.set(
             sat.pos[0] * SCALE,
-            sat.pos[2] * SCALE,   // swap y/z for Three.js coordinate system
+            sat.pos[2] * SCALE,
             sat.pos[1] * SCALE
         );
 
-        // Slow spin
         mesh.rotation.y += 0.005;
         mesh.rotation.x += 0.002;
 
-        // Color by status
         const col = STATUS_COLORS[sat.status] || 0x555555;
         mesh.material.color.setHex(col);
         mesh.material.emissive.setHex(col).multiplyScalar(0.3);
         glow.color.setHex(col);
         glow.intensity = sat.status === 'CRITICAL' ? 0.8 : 0.3;
 
-        // Pulse critical satellites
         if (sat.status === 'CRITICAL') {
-            const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.008);
-            mesh.scale.setScalar(1.0 + pulse * 0.2);
+            mesh.scale.setScalar(1.0 + 0.1 * Math.sin(Date.now() * 0.008));
         } else {
             mesh.scale.setScalar(1.0);
         }
+        if (sat.id === selectedSatId) mesh.scale.multiplyScalar(1.25);
 
-        // Highlight selected
-        if (sat.id === selectedSatId) {
-            mesh.scale.multiplyScalar(1.25);
-        }
-
-        // Eclipse dimming (darken solar panels)
         mesh.children.forEach(child => {
             if (child.isMesh) {
                 child.material.emissive.setHex(sat.in_eclipse ? 0x000000 : 0x0a0a3a);
@@ -633,25 +834,18 @@ function updateScene(data) {
         });
     });
 
-    // Update servicer
+    // Servicer
     const svc = data.servicer;
-    svcMesh.position.set(
-        svc.pos[0] * SCALE,
-        svc.pos[2] * SCALE,
-        svc.pos[1] * SCALE
-    );
+    svcMesh.position.set(svc.pos[0] * SCALE, svc.pos[2] * SCALE, svc.pos[1] * SCALE);
 
-    // Engine glow when moving
     const svcSpeed = Math.sqrt(svc.vel[0]**2 + svc.vel[1]**2 + svc.vel[2]**2);
     svcGlow.intensity = Math.min(2, svcSpeed * 0.1);
 
-    // Point servicer toward its target
     if (svc.target_id >= 0 && svc.target_id < satMeshes.length) {
-        const targetPos = satMeshes[svc.target_id].position;
-        svcMesh.lookAt(targetPos);
+        svcMesh.lookAt(satMeshes[svc.target_id].position);
     }
 
-    // Update trail
+    // Trail
     const ti = trailIdx % TRAIL_LEN;
     trailPositions[ti * 3]     = svcMesh.position.x;
     trailPositions[ti * 3 + 1] = svcMesh.position.y;
@@ -659,12 +853,45 @@ function updateScene(data) {
     trailIdx++;
     trailGeo.attributes.position.needsUpdate = true;
 
-    // Rotate Earth slowly
-    earth.rotation.y += 0.001;
+    // Rotate Earth
+    earth.rotation.y += 0.0005;
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  RAYCASTING (Click-to-select satellites)
+//  CAMERA ANIMATION
+// ════════════════════════════════════════════════════════════════════
+
+function animateCamera(toPos, toTarget, duration = 1.5) {
+    cameraFrom = {
+        pos: camera.position.clone(),
+        target: controls.target.clone()
+    };
+    cameraTo = {
+        pos: new THREE.Vector3(...toPos),
+        target: new THREE.Vector3(...toTarget)
+    };
+    cameraAnimT = 0;
+    cameraAnimating = true;
+}
+
+function updateCameraAnimation(dt) {
+    if (!cameraAnimating) return;
+    cameraAnimT += dt / 1.5;
+    if (cameraAnimT >= 1) {
+        cameraAnimT = 1;
+        cameraAnimating = false;
+    }
+    // Smooth ease-in-out
+    const t = cameraAnimT < 0.5
+        ? 2 * cameraAnimT * cameraAnimT
+        : 1 - Math.pow(-2 * cameraAnimT + 2, 2) / 2;
+
+    camera.position.lerpVectors(cameraFrom.pos, cameraTo.pos, t);
+    controls.target.lerpVectors(cameraFrom.target, cameraTo.target, t);
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  RAYCASTING
 // ════════════════════════════════════════════════════════════════════
 
 const raycaster = new THREE.Raycaster();
@@ -673,30 +900,22 @@ const mouse     = new THREE.Vector2();
 renderer.domElement.addEventListener('click', (event) => {
     mouse.x =  (event.clientX / window.innerWidth)  * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(satMeshes, true);
-
     if (hits.length > 0) {
-        // Walk up to find the satellite mesh
         let obj = hits[0].object;
         while (obj && obj.userData.satId === undefined) obj = obj.parent;
-        if (obj && obj.userData.satId !== undefined) {
-            selectedSatId = obj.userData.satId;
-        }
+        if (obj && obj.userData.satId !== undefined) selectedSatId = obj.userData.satId;
     } else {
         selectedSatId = -1;
     }
 });
 
-// ── Tooltip on hover ──
 renderer.domElement.addEventListener('mousemove', (event) => {
     mouse.x =  (event.clientX / window.innerWidth)  * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(satMeshes, true);
-
     const tip = document.getElementById('tooltip');
     if (hits.length > 0 && telemetryData) {
         let obj = hits[0].object;
@@ -707,8 +926,7 @@ renderer.domElement.addEventListener('mousemove', (event) => {
                 tip.style.display = 'block';
                 tip.style.left = (event.clientX + 14) + 'px';
                 tip.style.top  = (event.clientY + 14) + 'px';
-                tip.innerHTML  = `<b>${sat.name}</b> [${sat.status}]<br>` +
-                    `Temp: ${sat.gpu_temp.toFixed(0)}C | Fuel: ${sat.fuel.toFixed(1)}kg`;
+                tip.innerHTML  = `<b>${sat.name}</b> [${sat.status}]<br>Temp: ${sat.gpu_temp.toFixed(0)}C | Fuel: ${sat.fuel.toFixed(1)}kg`;
             }
         }
     } else {
@@ -733,9 +951,25 @@ document.getElementById('btn-pause').addEventListener('click', () => {
     });
 });
 
+// View toggle
+document.getElementById('btn-view-formation').addEventListener('click', () => {
+    currentView = 'formation';
+    animateCamera(VIEW_FORMATION.pos, VIEW_FORMATION.target);
+    document.getElementById('btn-view-formation').classList.add('active');
+    document.getElementById('btn-view-orbit').classList.remove('active');
+    gridHelper.visible = true;
+});
+
+document.getElementById('btn-view-orbit').addEventListener('click', () => {
+    currentView = 'orbital';
+    animateCamera(VIEW_ORBITAL.pos, VIEW_ORBITAL.target);
+    document.getElementById('btn-view-orbit').classList.add('active');
+    document.getElementById('btn-view-formation').classList.remove('active');
+    gridHelper.visible = false;
+});
+
 document.getElementById('btn-service').addEventListener('click', () => {
     if (selectedSatId >= 0) {
-        // In demo mode this is visual only; with live engine it would send a command
         console.log('Dispatch servicer to satellite', selectedSatId);
     }
 });
@@ -758,15 +992,13 @@ const clock = new THREE.Clock();
 
 function animate() {
     requestAnimationFrame(animate);
-
     const dt = clock.getDelta();
+
+    updateCameraAnimation(dt);
     controls.update();
 
-    // Use live or demo data
     if (!useLiveData) {
-        if (!simPaused) {
-            demoTime += dt * simSpeed;
-        }
+        if (!simPaused) demoTime += dt * simSpeed;
         telemetryData = generateDemoData(demoTime);
     }
 

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # OrbitalPursuit
 
 **Autonomous Orbital Satellite Servicing Simulator**
@@ -119,3 +120,6 @@ OrbitalPursuit/
 ## License
 
 MIT
+=======
+# orbital-sat
+>>>>>>> 57b5d0de6dcd3640f0c354379dbf0484581b55cd
